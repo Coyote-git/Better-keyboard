@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Xcode
+BetterKeyboard/BetterKeyboard.xcodeproj/
+BetterKeyboard/build/
+xcuserdata/
+*.xcworkspace
+
+# DerivedData
+DerivedData/
+
+# Python
+optimizer/.venv/
+optimizer/__pycache__/
+*.pyc
+
+# Generated images (can be regenerated)
+optimizer/layout.png

@@ -1,0 +1,227 @@
+{
+  "slots": [
+    {
+      "letter": "H",
+      "ring": "inner",
+      "index": 0,
+      "angle_deg": 36.0,
+      "x": 0.809,
+      "y": 0.5878
+    },
+    {
+      "letter": "N",
+      "ring": "inner",
+      "index": 1,
+      "angle_deg": 72.0,
+      "x": 0.309,
+      "y": 0.9511
+    },
+    {
+      "letter": "S",
+      "ring": "inner",
+      "index": 2,
+      "angle_deg": 108.0,
+      "x": -0.309,
+      "y": 0.9511
+    },
+    {
+      "letter": "T",
+      "ring": "inner",
+      "index": 3,
+      "angle_deg": 144.0,
+      "x": -0.809,
+      "y": 0.5878
+    },
+    {
+      "letter": "E",
+      "ring": "inner",
+      "index": 4,
+      "angle_deg": 216.0,
+      "x": -0.809,
+      "y": -0.5878
+    },
+    {
+      "letter": "A",
+      "ring": "inner",
+      "index": 5,
+      "angle_deg": 252.0,
+      "x": -0.309,
+      "y": -0.9511
+    },
+    {
+      "letter": "I",
+      "ring": "inner",
+      "index": 6,
+      "angle_deg": 288.0,
+      "x": 0.309,
+      "y": -0.9511
+    },
+    {
+      "letter": "O",
+      "ring": "inner",
+      "index": 7,
+      "angle_deg": 324.0,
+      "x": 0.809,
+      "y": -0.5878
+    },
+    {
+      "letter": "B",
+      "ring": "outer",
+      "index": 8,
+      "angle_deg": 26.0,
+      "x": 1.9773,
+      "y": 0.9644
+    },
+    {
+      "letter": "V",
+      "ring": "outer",
+      "index": 9,
+      "angle_deg": 42.0,
+      "x": 1.6349,
+      "y": 1.4721
+    },
+    {
+      "letter": "M",
+      "ring": "outer",
+      "index": 10,
+      "angle_deg": 58.0,
+      "x": 1.1658,
+      "y": 1.8657
+    },
+    {
+      "letter": "R",
+      "ring": "outer",
+      "index": 11,
+      "angle_deg": 74.0,
+      "x": 0.6064,
+      "y": 2.1148
+    },
+    {
+      "letter": "L",
+      "ring": "outer",
+      "index": 12,
+      "angle_deg": 90.0,
+      "x": 0.0,
+      "y": 2.2
+    },
+    {
+      "letter": "W",
+      "ring": "outer",
+      "index": 13,
+      "angle_deg": 106.0,
+      "x": -0.6064,
+      "y": 2.1148
+    },
+    {
+      "letter": "C",
+      "ring": "outer",
+      "index": 14,
+      "angle_deg": 122.0,
+      "x": -1.1658,
+      "y": 1.8657
+    },
+    {
+      "letter": "D",
+      "ring": "outer",
+      "index": 15,
+      "angle_deg": 138.0,
+      "x": -1.6349,
+      "y": 1.4721
+    },
+    {
+      "letter": "F",
+      "ring": "outer",
+      "index": 16,
+      "angle_deg": 154.0,
+      "x": -1.9773,
+      "y": 0.9644
+    },
+    {
+      "letter": "G",
+      "ring": "outer",
+      "index": 17,
+      "angle_deg": 206.0,
+      "x": -1.9773,
+      "y": -0.9644
+    },
+    {
+      "letter": "P",
+      "ring": "outer",
+      "index": 18,
+      "angle_deg": 222.0,
+      "x": -1.6349,
+      "y": -1.4721
+    },
+    {
+      "letter": "U",
+      "ring": "outer",
+      "index": 19,
+      "angle_deg": 238.0,
+      "x": -1.1658,
+      "y": -1.8657
+    },
+    {
+      "letter": "Y",
+      "ring": "outer",
+      "index": 20,
+      "angle_deg": 254.0,
+      "x": -0.6064,
+      "y": -2.1148
+    },
+    {
+      "letter": "K",
+      "ring": "outer",
+      "index": 21,
+      "angle_deg": 270.0,
+      "x": -0.0,
+      "y": -2.2
+    },
+    {
+      "letter": "J",
+      "ring": "outer",
+      "index": 22,
+      "angle_deg": 286.0,
+      "x": 0.6064,
+      "y": -2.1148
+    },
+    {
+      "letter": "Q",
+      "ring": "outer",
+      "index": 23,
+      "angle_deg": 302.0,
+      "x": 1.1658,
+      "y": -1.8657
+    },
+    {
+      "letter": "Z",
+      "ring": "outer",
+      "index": 24,
+      "angle_deg": 318.0,
+      "x": 1.6349,
+      "y": -1.4721
+    },
+    {
+      "letter": "X",
+      "ring": "outer",
+      "index": 25,
+      "angle_deg": 334.0,
+      "x": 1.9773,
+      "y": -0.9644
+    }
+  ],
+  "metadata": {
+    "energy": 10.044076787533523,
+    "r_inner": 1.0,
+    "r_outer": 2.2,
+    "n_inner": 8,
+    "n_outer": 18,
+    "gap_angles": [
+      180.0,
+      0.0
+    ],
+    "gap_width_deg": 36.0,
+    "usable_arc_deg": 288.0,
+    "arc_start_deg": 18.0,
+    "arc_end_deg": 162.0
+  }
+}

@@ -1,0 +1,43 @@
+name: BetterKeyboard
+options:
+  bundleIdPrefix: com.jacobdetwiler
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+
+targets:
+  BetterKeyboardApp:
+    type: application
+    platform: iOS
+    sources:
+      - BetterKeyboardApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jacobdetwiler.BetterKeyboard
+        INFOPLIST_FILE: BetterKeyboardApp/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+    dependencies:
+      - target: KeyboardExtension
+
+  KeyboardExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - KeyboardExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jacobdetwiler.BetterKeyboard.keyboard
+        INFOPLIST_FILE: KeyboardExtension/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+
+schemes:
+  BetterKeyboardApp:
+    build:
+      targets:
+        BetterKeyboardApp: all
+    run:
+      config: Debug
