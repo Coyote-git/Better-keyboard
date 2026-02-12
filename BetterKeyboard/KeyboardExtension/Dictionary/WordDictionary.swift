@@ -83,6 +83,24 @@ class WordDictionary {
         "wholl":    "who'll",
     ]
 
+    /// Maps real words to their apostrophe'd alternative.
+    /// Used when the user taps the apostrophe button after typing a word.
+    /// Includes both ambiguous real-word pairs AND stripped contraction forms.
+    static let apostropheAlternatives: [String: String] = {
+        // Start with all stripped contractions (dont → don't, etc.)
+        var map = contractions
+        // Add real-word ambiguous pairs not already in the contractions map
+        map["were"] = "we're"
+        map["wed"] = "we'd"
+        map["id"] = "I'd"
+        map["its"] = "it's"
+        map["shed"] = "she'd"
+        map["hed"] = "he'd"
+        map["theyd"] = "they'd"
+        map["youd"] = "you'd"
+        return map
+    }()
+
     init() {
         loadWords()
     }

@@ -50,11 +50,10 @@ class KeyboardViewController: UIInputViewController {
         guard let before = textDocumentProxy.documentContextBeforeInput,
               before.hasSuffix(" ") else { return }
 
-        // Extract the last word (everything between the trailing space and the prior space/start)
-        let trimmed = before.dropLast() // remove trailing space
-        let lastSpace = trimmed.lastIndex(of: " ") ?? trimmed.startIndex
-        let wordStart = lastSpace == trimmed.startIndex ? lastSpace : trimmed.index(after: lastSpace)
-        let lastWord = String(trimmed[wordStart...])
+        // Extract the last word (split on any whitespace, take the last component)
+        let trimmed = before.dropLast()
+        guard let lastWordSub = trimmed.split(whereSeparator: { $0.isWhitespace }).last else { return }
+        let lastWord = String(lastWordSub)
         guard !lastWord.isEmpty else { return }
 
         let lower = lastWord.lowercased()
@@ -178,12 +177,42 @@ extension KeyboardViewController: RingViewDelegate {
     }
 
     func ringView(_ ringView: RingView, didTapPunctuation character: Character) {
+        // Apostrophe toggle: replace last word with contracted version if one exists
+        if character == "'" {
+            if tryApostropheToggle() { return }
+        }
+
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
         if ".?!,".contains(character) && before.hasSuffix(" ") && !before.isEmpty {
             textDocumentProxy.deleteBackward()
         }
         textDocumentProxy.insertText(String(character))
         checkAutoShift()
+    }
+
+    /// If the word immediately before the cursor has an apostrophe'd alternative,
+    /// replace it and return true. Otherwise return false (insert literal apostrophe).
+    private func tryApostropheToggle() -> Bool {
+        guard let before = textDocumentProxy.documentContextBeforeInput,
+              !before.isEmpty else { return false }
+
+        // The word is right before the cursor (no trailing space)
+        let components = before.split(whereSeparator: { $0.isWhitespace })
+        guard let lastWordSub = components.last else { return false }
+        let lastWord = String(lastWordSub)
+
+        let lower = lastWord.lowercased()
+        guard let contracted = WordDictionary.apostropheAlternatives[lower] else { return false }
+
+        // Preserve user's capitalization: if first letter was uppercase, capitalize the replacement
+        var replacement = contracted
+        if let first = lastWord.first, first.isUppercase {
+            replacement = replacement.prefix(1).uppercased() + replacement.dropFirst()
+        }
+
+        for _ in 0..<lastWord.count { textDocumentProxy.deleteBackward() }
+        textDocumentProxy.insertText(replacement)
+        return true
     }
 
     func ringView(_ ringView: RingView, didMoveCursor offset: Int) {
