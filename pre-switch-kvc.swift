@@ -27,7 +27,7 @@ class KeyboardViewController: UIInputViewController {
             ringView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
-        let heightConstraint = view.heightAnchor.constraint(equalToConstant: 290)
+        let heightConstraint = view.heightAnchor.constraint(equalToConstant: 320)
         heightConstraint.priority = .defaultHigh
         heightConstraint.isActive = true
     }
@@ -39,33 +39,29 @@ class KeyboardViewController: UIInputViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        checkAutoShift()
+        refreshPredictions()
     }
 
-    // MARK: - Auto-capitalize
+    // MARK: - Predictions
 
-    private func autoCorrectStandaloneI() {
-        guard let before = textDocumentProxy.documentContextBeforeInput else { return }
-        if before.hasSuffix(" i ") {
-            for _ in 0..<3 { textDocumentProxy.deleteBackward() }
-            textDocumentProxy.insertText(" I ")
-        } else if before == "i " && before.count == 2 {
-            for _ in 0..<2 { textDocumentProxy.deleteBackward() }
-            textDocumentProxy.insertText("I ")
-        }
-    }
-
-    private func checkAutoShift() {
-        guard !isShifted else { return }
+    private func refreshPredictions() {
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        let shouldShift = before.isEmpty
-            || before.hasSuffix(". ")
-            || before.hasSuffix("! ")
-            || before.hasSuffix("? ")
-            || before.hasSuffix("\n")
-        if shouldShift {
-            isShifted = true
-            ringView.updateShiftAppearance(isShifted: true)
+
+        if before.isEmpty || before.hasSuffix(" ") {
+            // Cursor after a space (or at start) — show top-frequency words
+            let predictions = wordDictionary.predictNextWords(limit: 3)
+            ringView.updatePredictions(predictions)
+        } else {
+            // Cursor mid-word — show prefix completions
+            let words = before.components(separatedBy: " ")
+            let partial = words.last ?? ""
+            if !partial.isEmpty {
+                let completions = wordDictionary.wordsWithPrefix(partial, limit: 3)
+                ringView.updatePredictions(completions)
+            } else {
+                let predictions = wordDictionary.predictNextWords(limit: 3)
+                ringView.updatePredictions(predictions)
+            }
         }
     }
 }
@@ -79,29 +75,21 @@ extension KeyboardViewController: RingViewDelegate {
         if isShifted {
             text = text.uppercased()
             isShifted = false
-            ringView.updateShiftAppearance(isShifted: false)
         } else {
             text = text.lowercased()
         }
         textDocumentProxy.insertText(text)
-        checkAutoShift()
+        refreshPredictions()
     }
 
     func ringView(_ ringView: RingView, didTapSpace: Void) {
-        let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        if before.hasSuffix(" ") && !before.hasSuffix(". ") && !before.isEmpty {
-            textDocumentProxy.deleteBackward()
-            textDocumentProxy.insertText(". ")
-        } else {
-            textDocumentProxy.insertText(" ")
-            autoCorrectStandaloneI()
-        }
-        checkAutoShift()
+        textDocumentProxy.insertText(" ")
+        refreshPredictions()
     }
 
     func ringView(_ ringView: RingView, didTapBackspace: Void) {
         textDocumentProxy.deleteBackward()
-        checkAutoShift()
+        refreshPredictions()
     }
 
     func ringView(_ ringView: RingView, didSwipeWord slots: [KeySlot]) {
@@ -110,45 +98,61 @@ extension KeyboardViewController: RingViewDelegate {
         if isShifted {
             text = text.prefix(1).uppercased() + text.dropFirst()
             isShifted = false
-            ringView.updateShiftAppearance(isShifted: false)
         }
-        let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        let prefix = (!before.isEmpty && !before.hasSuffix(" ")) ? " " : ""
         let afterInput = textDocumentProxy.documentContextAfterInput ?? ""
         let suffix = afterInput.hasPrefix(" ") ? "" : " "
-        textDocumentProxy.insertText(prefix + text + suffix)
-        checkAutoShift()
+        textDocumentProxy.insertText(text + suffix)
+        refreshPredictions()
     }
 
     func ringView(_ ringView: RingView, didTapShift: Void) {
         isShifted.toggle()
-        ringView.updateShiftAppearance(isShifted: isShifted)
     }
 
     func ringView(_ ringView: RingView, didTapReturn: Void) {
         textDocumentProxy.insertText("\n")
-        checkAutoShift()
+        refreshPredictions()
+    }
+
+    func ringView(_ ringView: RingView, didMoveCursorLeft: Void) {
+        textDocumentProxy.adjustTextPosition(byCharacterOffset: -1)
+        refreshPredictions()
+    }
+
+    func ringView(_ ringView: RingView, didMoveCursorRight: Void) {
+        textDocumentProxy.adjustTextPosition(byCharacterOffset: 1)
+        refreshPredictions()
     }
 
     func ringView(_ ringView: RingView, didDeleteWord: Void) {
+        // Delete backward until we hit a space or run out of text
+        // First skip any trailing spaces
         while let before = textDocumentProxy.documentContextBeforeInput,
               before.hasSuffix(" ") {
             textDocumentProxy.deleteBackward()
         }
+        // Then delete the word itself
         while let before = textDocumentProxy.documentContextBeforeInput,
               !before.isEmpty,
               !before.hasSuffix(" ") {
             textDocumentProxy.deleteBackward()
         }
-        checkAutoShift()
+        refreshPredictions()
     }
 
-    func ringView(_ ringView: RingView, didTapPunctuation character: Character) {
+    func ringView(_ ringView: RingView, didTapPrediction word: String) {
+        // Delete the current partial word, then insert the predicted word
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        if ".?!,".contains(character) && before.hasSuffix(" ") && !before.isEmpty {
-            textDocumentProxy.deleteBackward()
+        if !before.isEmpty && !before.hasSuffix(" ") {
+            let words = before.components(separatedBy: " ")
+            let partial = words.last ?? ""
+            for _ in 0..<partial.count {
+                textDocumentProxy.deleteBackward()
+            }
         }
-        textDocumentProxy.insertText(String(character))
-        checkAutoShift()
+        let afterInput = textDocumentProxy.documentContextAfterInput ?? ""
+        let suffix = afterInput.hasPrefix(" ") ? "" : " "
+        textDocumentProxy.insertText(word + suffix)
+        refreshPredictions()
     }
 }

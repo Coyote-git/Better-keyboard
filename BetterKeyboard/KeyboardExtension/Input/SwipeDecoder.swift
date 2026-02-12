@@ -49,7 +49,6 @@ class SwipeDecoder {
         "theres":   "there's",
         "lets":     "let's",
         "im":       "I'm",
-        "youre":    "you're",
         "hes":      "he's",
         "shes":     "she's",
         "itll":     "it'll",

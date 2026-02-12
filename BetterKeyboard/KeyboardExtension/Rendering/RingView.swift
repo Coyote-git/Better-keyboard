@@ -7,10 +7,7 @@ protocol RingViewDelegate: AnyObject {
     func ringView(_ ringView: RingView, didSwipeWord slots: [KeySlot])
     func ringView(_ ringView: RingView, didTapShift: Void)
     func ringView(_ ringView: RingView, didTapReturn: Void)
-    func ringView(_ ringView: RingView, didMoveCursorLeft: Void)
-    func ringView(_ ringView: RingView, didMoveCursorRight: Void)
     func ringView(_ ringView: RingView, didDeleteWord: Void)
-    func ringView(_ ringView: RingView, didJumpToEnd: Void)
     func ringView(_ ringView: RingView, didTapPunctuation character: Character)
 }
 
@@ -25,7 +22,7 @@ class RingView: UIView {
     private var symbolSlots: [KeySlot] = []
     private(set) var isSymbolMode = false
     private var center_: CGPoint = .zero
-    private var scale: CGFloat = 1.0
+    private(set) var currentScale: CGFloat = 1.0
 
     // MARK: - Layers
 
@@ -39,12 +36,12 @@ class RingView: UIView {
     private var keyCapLayers: [KeyCapLayer] = []
     let swipeTrail = SwipeTrailLayer()
 
-    // MARK: - Arc buttons (punctuation left, function right)
+    // MARK: - Buttons
 
     private var punctuationButtons: [UIButton] = []
     private var functionButtons: [UIButton] = []
 
-    // MARK: - Theme colors
+    // MARK: - Theme
 
     private static let bgColor = UIColor.black
     private static let dimColor = UIColor(white: 0.15, alpha: 1.0)
@@ -52,7 +49,7 @@ class RingView: UIView {
     private static let labelColor = UIColor(white: 0.5, alpha: 1.0)
     private static let glowColor = SwipeTrailLayer.glowColor
 
-    // MARK: - Input handling
+    // MARK: - Input
 
     private lazy var touchRouter = TouchRouter(ringView: self)
 
@@ -68,7 +65,7 @@ class RingView: UIView {
         super.init(frame: frame)
         backgroundColor = Self.bgColor
         setupLayers()
-        setupArcButtons()
+        setupButtons()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -78,42 +75,19 @@ class RingView: UIView {
     func configure(viewSize: CGSize) {
         let layout = RingLayoutConfig.computeLayout(viewSize: viewSize)
         center_ = layout.center
-        scale = layout.scale
+        currentScale = layout.scale
 
         letterSlots = RingLayoutConfig.makeSlots()
-        RingLayoutConfig.applyScreenPositions(slots: &letterSlots, center: center_, scale: scale)
+        RingLayoutConfig.applyScreenPositions(slots: &letterSlots, center: center_, scale: currentScale)
 
         symbolSlots = RingLayoutConfig.makeSymbolSlots()
-        RingLayoutConfig.applyScreenPositions(slots: &symbolSlots, center: center_, scale: scale)
+        RingLayoutConfig.applyScreenPositions(slots: &symbolSlots, center: center_, scale: currentScale)
 
         slots = isSymbolMode ? symbolSlots : letterSlots
         rebuildLayers()
     }
 
-    // MARK: - Dark mode
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
-            refreshAllColors()
-        }
-    }
-
-    private func refreshAllColors() {
-        innerRingArc.strokeColor = Self.subtleStroke.cgColor
-        outerRingArc.strokeColor = Self.subtleStroke.cgColor
-        backspaceZone.fillColor = UIColor.systemRed.withAlphaComponent(0.08).cgColor
-        backspaceZone.strokeColor = Self.subtleStroke.withAlphaComponent(0.3).cgColor
-        spaceZone.fillColor = Self.glowColor.withAlphaComponent(0.04).cgColor
-        spaceZone.strokeColor = Self.subtleStroke.withAlphaComponent(0.3).cgColor
-        backspaceLabel.foregroundColor = Self.labelColor.cgColor
-        spaceLabel.foregroundColor = Self.labelColor.cgColor
-        centerZone.fillColor = Self.dimColor.cgColor
-        centerZone.strokeColor = Self.subtleStroke.cgColor
-        keyCapLayers.forEach { $0.refreshColors() }
-    }
-
-    // MARK: - Shift state
+    // MARK: - Shift
 
     func updateShiftAppearance(isShifted: Bool) {
         guard !functionButtons.isEmpty else { return }
@@ -121,43 +95,15 @@ class RingView: UIView {
             ? Self.glowColor.withAlphaComponent(0.3) : Self.dimColor
     }
 
-    // MARK: - Center glow for cursor mode
+    // MARK: - Key highlighting
 
-    func showCenterHoldGlow() {
-        let anim = CABasicAnimation(keyPath: "fillColor")
-        anim.toValue = Self.glowColor.withAlphaComponent(0.15).cgColor
-        anim.duration = 2.0
-        anim.fillMode = .forwards
-        anim.isRemovedOnCompletion = false
-        centerZone.add(anim, forKey: "holdGlow")
+    func highlightKey(at index: Int) {
+        guard index >= 0, index < keyCapLayers.count else { return }
+        keyCapLayers[index].setHighlighted(true)
     }
 
-    func showCenterCursorActive() {
-        centerZone.removeAnimation(forKey: "holdGlow")
-        centerZone.fillColor = Self.glowColor.withAlphaComponent(0.2).cgColor
-        centerZone.shadowColor = Self.glowColor.cgColor
-        centerZone.shadowRadius = 12
-        centerZone.shadowOpacity = 0.6
-        centerZone.shadowOffset = .zero
-
-        // Visual pulse — expand and contract to signal activation
-        let pulse = CAKeyframeAnimation(keyPath: "transform.scale")
-        pulse.values = [1.0, 2.5, 1.0]
-        pulse.keyTimes = [0, 0.25, 1.0]
-        pulse.duration = 0.4
-        pulse.isRemovedOnCompletion = true
-        centerZone.add(pulse, forKey: "activatePulse")
-
-        // Haptic feedback
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
-    }
-
-    func hideCenterGlow() {
-        centerZone.removeAnimation(forKey: "holdGlow")
-        centerZone.fillColor = Self.dimColor.cgColor
-        centerZone.shadowOpacity = 0
-        centerZone.shadowRadius = 0
+    func unhighlightAllKeys() {
+        keyCapLayers.forEach { $0.setHighlighted(false) }
     }
 
     // MARK: - Layer setup
@@ -179,10 +125,9 @@ class RingView: UIView {
         drawGapZones()
         drawCenterZone()
 
-        // Main ring keys (inner + outer)
         for slot in slots {
             let keyCap = KeyCapLayer(slot: slot)
-            keyCap.updateWedge(center: center_, scale: scale)
+            keyCap.updateWedge(center: center_, scale: currentScale)
             layer.addSublayer(keyCap)
             keyCapLayers.append(keyCap)
         }
@@ -190,10 +135,10 @@ class RingView: UIView {
         swipeTrail.removeFromSuperlayer()
         layer.addSublayer(swipeTrail)
 
-        layoutArcButtons()
+        layoutButtons()
     }
 
-    // MARK: - Drawing
+    // MARK: - Ring arc drawing
 
     private func drawRingArcs() {
         let seg1Start = -RingLayoutConfig.arcStartDeg * .pi / 180.0
@@ -203,7 +148,7 @@ class RingView: UIView {
 
         for (ringLayer, radius) in [(innerRingArc, RingLayoutConfig.innerRadius),
                                      (outerRingArc, RingLayoutConfig.outerRadius)] {
-            let r = radius * scale
+            let r = radius * currentScale
             let path = UIBezierPath()
             path.addArc(withCenter: center_, radius: r,
                         startAngle: seg1Start, endAngle: seg1End, clockwise: false)
@@ -218,6 +163,8 @@ class RingView: UIView {
             ringLayer.lineDashPattern = [4, 6]
         }
     }
+
+    // MARK: - Gap zone drawing
 
     private func drawGapZones() {
         drawGapWedge(layer: backspaceZone,
@@ -236,11 +183,11 @@ class RingView: UIView {
     private func drawGapWedge(layer wedgeLayer: CAShapeLayer,
                               gapCenter: CGFloat, fillColor: CGColor) {
         let halfGap = RingLayoutConfig.gapWidthDeg / 2.0
-        let startRad = CGFloat(-(gapCenter - halfGap)) * .pi / 180.0
-        let endRad = CGFloat(-(gapCenter + halfGap)) * .pi / 180.0
+        let startRad = -(gapCenter - halfGap) * .pi / 180.0
+        let endRad = -(gapCenter + halfGap) * .pi / 180.0
 
-        let rInner = RingLayoutConfig.outerWedgeRMin * scale
-        let rOuter = RingLayoutConfig.outerWedgeRMax * scale
+        let rInner = RingLayoutConfig.outerWedgeRMin * currentScale
+        let rOuter = RingLayoutConfig.outerWedgeRMax * currentScale
 
         let path = UIBezierPath()
         path.addArc(withCenter: center_, radius: rOuter,
@@ -257,10 +204,10 @@ class RingView: UIView {
 
     private func positionGapLabel(_ textLayer: CATextLayer, text: String,
                                   gapCenter: CGFloat, fontSize: CGFloat) {
-        let midRadius = (RingLayoutConfig.outerWedgeRMin + RingLayoutConfig.outerWedgeRMax) / 2.0 * scale
+        let midR = (RingLayoutConfig.outerWedgeRMin + RingLayoutConfig.outerWedgeRMax) / 2.0 * currentScale
         let angleRad = -gapCenter * .pi / 180.0
-        let cx = center_.x + midRadius * cos(angleRad)
-        let cy = center_.y + midRadius * sin(angleRad)
+        let cx = center_.x + midR * cos(angleRad)
+        let cy = center_.y + midR * sin(angleRad)
 
         let size = CGSize(width: 60, height: 24)
         textLayer.frame = CGRect(x: cx - size.width / 2, y: cy - size.height / 2,
@@ -272,6 +219,8 @@ class RingView: UIView {
         textLayer.contentsScale = UIScreen.main.scale
     }
 
+    // MARK: - Center zone
+
     private func drawCenterZone() {
         let r = Self.centerTapRadius
         let path = UIBezierPath(ovalIn: CGRect(x: center_.x - r, y: center_.y - r,
@@ -282,20 +231,9 @@ class RingView: UIView {
         centerZone.lineWidth = 0.5
     }
 
-    // MARK: - Key highlighting
+    // MARK: - Buttons
 
-    func highlightKey(at index: Int) {
-        guard index >= 0, index < keyCapLayers.count else { return }
-        keyCapLayers[index].setHighlighted(true)
-    }
-
-    func unhighlightAllKeys() {
-        keyCapLayers.forEach { $0.setHighlighted(false) }
-    }
-
-    // MARK: - Arc buttons (punctuation left, function right)
-
-    private func setupArcButtons() {
+    private func setupButtons() {
         let punctTitles = [".", ",", "'", "?", "!"]
         for (i, title) in punctTitles.enumerated() {
             let btn = UIButton(type: .system)
@@ -305,12 +243,12 @@ class RingView: UIView {
             btn.backgroundColor = Self.dimColor
             btn.layer.cornerRadius = 8
             btn.tag = i
-            btn.addTarget(self, action: #selector(punctuationArcTapped(_:)), for: .touchUpInside)
+            btn.addTarget(self, action: #selector(punctuationTapped(_:)), for: .touchUpInside)
             addSubview(btn)
             punctuationButtons.append(btn)
         }
 
-        let funcTitles = ["\u{21E7}", "123", "\u{21B5}"]   // ⇧, 123, ↵
+        let funcTitles = ["\u{21E7}", "123", "\u{21B5}"]
         for (i, title) in funcTitles.enumerated() {
             let btn = UIButton(type: .system)
             btn.setTitle(title, for: .normal)
@@ -319,44 +257,40 @@ class RingView: UIView {
             btn.backgroundColor = Self.dimColor
             btn.layer.cornerRadius = 8
             btn.tag = i
-            btn.addTarget(self, action: #selector(functionArcTapped(_:)), for: .touchUpInside)
+            btn.addTarget(self, action: #selector(functionTapped(_:)), for: .touchUpInside)
             addSubview(btn)
             functionButtons.append(btn)
         }
     }
 
-    private func layoutArcButtons() {
-        let radius = RingLayoutConfig.buttonArcRadius * scale
+    private func layoutButtons() {
+        let radius = RingLayoutConfig.buttonArcRadius * currentScale
         let btnSize: CGFloat = 34.0
 
-        // Left side: 5 punctuation buttons centered at 180°, 15° spacing
         let punctAngles: [CGFloat] = [150, 165, 180, 195, 210]
         for (i, btn) in punctuationButtons.enumerated() {
-            let angleRad = -punctAngles[i] * .pi / 180.0
-            let cx = center_.x + radius * cos(angleRad)
-            let cy = center_.y + radius * sin(angleRad)
-            btn.frame = CGRect(x: cx - btnSize / 2, y: cy - btnSize / 2,
+            let rad = -punctAngles[i] * .pi / 180.0
+            btn.frame = CGRect(x: center_.x + radius * cos(rad) - btnSize / 2,
+                               y: center_.y + radius * sin(rad) - btnSize / 2,
                                width: btnSize, height: btnSize)
         }
 
-        // Right side: 3 function buttons centered at 0°, 15° spacing
         let funcAngles: [CGFloat] = [15, 0, 345]
         for (i, btn) in functionButtons.enumerated() {
-            let angleRad = -funcAngles[i] * .pi / 180.0
-            let cx = center_.x + radius * cos(angleRad)
-            let cy = center_.y + radius * sin(angleRad)
-            btn.frame = CGRect(x: cx - btnSize / 2, y: cy - btnSize / 2,
+            let rad = -funcAngles[i] * .pi / 180.0
+            btn.frame = CGRect(x: center_.x + radius * cos(rad) - btnSize / 2,
+                               y: center_.y + radius * sin(rad) - btnSize / 2,
                                width: btnSize, height: btnSize)
         }
     }
 
-    @objc private func punctuationArcTapped(_ sender: UIButton) {
+    @objc private func punctuationTapped(_ sender: UIButton) {
         let chars: [Character] = [".", ",", "'", "?", "!"]
         guard sender.tag < chars.count else { return }
         delegate?.ringView(self, didTapPunctuation: chars[sender.tag])
     }
 
-    @objc private func functionArcTapped(_ sender: UIButton) {
+    @objc private func functionTapped(_ sender: UIButton) {
         switch sender.tag {
         case 0: delegate?.ringView(self, didTapShift: ())
         case 1: toggleSymbolMode()
@@ -369,16 +303,16 @@ class RingView: UIView {
         isSymbolMode.toggle()
         slots = isSymbolMode ? symbolSlots : letterSlots
         rebuildLayers()
-        // Update the 123 button appearance
         guard functionButtons.count > 1 else { return }
         functionButtons[1].backgroundColor = isSymbolMode
             ? Self.glowColor.withAlphaComponent(0.3) : Self.dimColor
     }
 
-    // MARK: - Touch handling (delegated to TouchRouter)
+    // MARK: - Touch handling
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
+        if touch.view is UIButton { return }
         touchRouter.touchBegan(touch.location(in: self))
     }
 
