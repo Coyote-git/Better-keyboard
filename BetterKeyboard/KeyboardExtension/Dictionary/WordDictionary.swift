@@ -9,6 +9,80 @@ class WordDictionary {
     /// Frequency-ordered word list (first = most common)
     private(set) var wordList: [String] = []
 
+    /// Words that should always be capitalized (proper nouns, names).
+    static let properNouns: Set<String> = [
+        // Names — unambiguous only (removed: ben, bob, carl, carol, charlie, dan,
+        // diana, evan, frank, grace, harry, jack, jake, jim, joe, jordan, josh,
+        // justin, kate, kim, kyle, lily, logan, luke, mark, mary, max, mike,
+        // morgan, nancy, nick, noah, olivia, pat, paul, peter, robin, sam, scott,
+        // steve, taylor, tim, tom, tony, tyler, victoria, william)
+        "aaron", "adam", "alex", "alice", "alison", "amanda", "amy", "andrew", "angela",
+        "anna", "brandon", "brian", "brooke", "cameron", "chris", "christian", "christina",
+        "claude", "connor", "daniel", "dave", "david", "dylan", "edward", "elizabeth",
+        "emily", "emma", "eric", "ethan", "gary", "george", "greg", "hannah", "heather",
+        "henry", "jacob", "james", "jane", "jason", "jeff", "jennifer", "jenny", "jessica",
+        "john", "jonathan", "julia", "karen", "katie", "kevin", "laura", "lauren", "linda",
+        "lisa", "matt", "matthew", "megan", "michael", "nathan", "nicole", "patrick",
+        "rachel", "rebecca", "richard", "robert", "ryan", "samantha", "sarah", "sean",
+        "sophia", "stephanie", "steven", "susan", "thomas",
+        // Tech / brands — unambiguous only (removed: apple, mac)
+        "google", "tesla", "amazon", "microsoft", "samsung", "netflix", "spotify",
+        "instagram", "facebook", "youtube", "reddit", "github", "android", "iphone",
+        "ipad", "siri", "alexa",
+        // Places
+        "america", "california", "england", "europe", "london", "paris", "texas",
+        // Days / months — unambiguous only (removed: march, may, august)
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        "january", "february", "april", "june", "july",
+        "september", "october", "november", "december",
+    ]
+
+    /// Maps apostrophe-stripped lowercase forms to their contracted spelling.
+    /// Shared with SwipeDecoder for tap-based autocorrect.
+    static let contractions: [String: String] = [
+        "dont":     "don't",
+        "doesnt":   "doesn't",
+        "didnt":    "didn't",
+        "wont":     "won't",
+        "wouldnt":  "wouldn't",
+        "shouldnt": "shouldn't",
+        "couldnt":  "couldn't",
+        "cant":     "can't",
+        "isnt":     "isn't",
+        "arent":    "aren't",
+        "wasnt":    "wasn't",
+        "werent":   "weren't",
+        "hasnt":    "hasn't",
+        "havent":   "haven't",
+        "hadnt":    "hadn't",
+        "mustnt":   "mustn't",
+        "neednt":   "needn't",
+        "youre":    "you're",
+        "theyre":   "they're",
+        "weve":     "we've",
+        "youve":    "you've",
+        "theyve":   "they've",
+        "ive":      "I've",
+        "youll":    "you'll",
+        "theyll":   "they'll",
+        "well":     "we'll",
+        "ill":      "I'll",
+        "shell":    "she'll",
+        "hell":     "he'll",
+        "thats":    "that's",
+        "whats":    "what's",
+        "whos":     "who's",
+        "heres":    "here's",
+        "theres":   "there's",
+        "lets":     "let's",
+        "im":       "I'm",
+        "hes":      "he's",
+        "shes":     "she's",
+        "itll":     "it'll",
+        "thatll":   "that'll",
+        "wholl":    "who'll",
+    ]
+
     init() {
         loadWords()
     }

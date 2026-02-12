@@ -118,7 +118,7 @@ class TouchRouter {
                 let dy = point.y - startPoint.y
 
                 if abs(dx) > abs(dy) * 1.5 {
-                    // Predominantly horizontal → center swipe, resolve on lift
+                    // Predominantly horizontal → center swipe gesture
                     mode = .centerSwipe
                 } else {
                     // Diagonal/vertical → ring swipe for word input
@@ -250,9 +250,8 @@ class TouchRouter {
 
         guard dist > cursorDeadZone else { return }
 
-        // Linear ramp: 0 at dead zone edge, maxSpeed at maxDistance
-        let effectiveDist = min(dist - cursorDeadZone, cursorMaxDistance - cursorDeadZone)
-        let speed = cursorMaxSpeed * effectiveDist / (cursorMaxDistance - cursorDeadZone)
+        let effective = min(dist - cursorDeadZone, cursorMaxDistance - cursorDeadZone)
+        let speed = cursorMaxSpeed * effective / (cursorMaxDistance - cursorDeadZone)
         let direction: CGFloat = dx > 0 ? 1.0 : -1.0
 
         cursorAccumulator += direction * speed * CGFloat(cursorTickInterval)

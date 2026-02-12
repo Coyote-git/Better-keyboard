@@ -44,15 +44,45 @@ class KeyboardViewController: UIInputViewController {
 
     // MARK: - Auto-capitalize
 
-    private func autoCorrectStandaloneI() {
-        guard let before = textDocumentProxy.documentContextBeforeInput else { return }
-        if before.hasSuffix(" i ") {
-            for _ in 0..<3 { textDocumentProxy.deleteBackward() }
-            textDocumentProxy.insertText(" I ")
-        } else if before == "i " && before.count == 2 {
-            for _ in 0..<2 { textDocumentProxy.deleteBackward() }
-            textDocumentProxy.insertText("I ")
+    /// After a space is inserted, check the word just typed and fix
+    /// contractions (dont → don't) and proper nouns (claude → Claude).
+    private func autoCorrectLastWord() {
+        guard let before = textDocumentProxy.documentContextBeforeInput,
+              before.hasSuffix(" ") else { return }
+
+        // Extract the last word (everything between the trailing space and the prior space/start)
+        let trimmed = before.dropLast() // remove trailing space
+        let lastSpace = trimmed.lastIndex(of: " ") ?? trimmed.startIndex
+        let wordStart = lastSpace == trimmed.startIndex ? lastSpace : trimmed.index(after: lastSpace)
+        let lastWord = String(trimmed[wordStart...])
+        guard !lastWord.isEmpty else { return }
+
+        let lower = lastWord.lowercased()
+        var replacement: String?
+
+        // 1. Standalone "i"
+        if lower == "i" && lastWord == "i" {
+            replacement = "I"
         }
+
+        // 2. Contraction (dont → don't)
+        if replacement == nil, let contracted = WordDictionary.contractions[lower],
+           lastWord == lower {  // only fix if user typed it lowercase (not intentionally cased)
+            replacement = contracted
+        }
+
+        // 3. Proper noun (claude → Claude)
+        if replacement == nil, WordDictionary.properNouns.contains(lower),
+           lastWord == lower {  // only fix if all-lowercase
+            replacement = lower.prefix(1).uppercased() + lower.dropFirst()
+        }
+
+        guard let fix = replacement else { return }
+
+        // Delete "word " and re-insert "fix "
+        let deleteCount = lastWord.count + 1 // +1 for trailing space
+        for _ in 0..<deleteCount { textDocumentProxy.deleteBackward() }
+        textDocumentProxy.insertText(fix + " ")
     }
 
     private func checkAutoShift() {
@@ -94,7 +124,7 @@ extension KeyboardViewController: RingViewDelegate {
             textDocumentProxy.insertText(". ")
         } else {
             textDocumentProxy.insertText(" ")
-            autoCorrectStandaloneI()
+            autoCorrectLastWord()
         }
         checkAutoShift()
     }
@@ -107,6 +137,10 @@ extension KeyboardViewController: RingViewDelegate {
     func ringView(_ ringView: RingView, didSwipeWord slots: [KeySlot]) {
         guard let word = swipeDecoder.decode(visitedSlots: slots) else { return }
         var text = word
+        // Capitalize proper nouns (before shift, so "Claude" not "claude")
+        if WordDictionary.properNouns.contains(text.lowercased()) && !text.contains("'") {
+            text = text.prefix(1).uppercased() + text.dropFirst()
+        }
         if isShifted {
             text = text.prefix(1).uppercased() + text.dropFirst()
             isShifted = false
