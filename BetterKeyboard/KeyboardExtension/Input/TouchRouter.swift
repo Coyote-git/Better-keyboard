@@ -1,12 +1,14 @@
 import UIKit
 
 /// Classifies touches and routes them to the appropriate handler.
-/// Modes: tap a key, swipe across keys, tap center (space), tap gap zones.
+/// Modes: tap a key, swipe across keys, hold center (cursor), tap gap zones.
 class TouchRouter {
 
     enum Mode {
         case none
-        case centerTap        // center zone: tap = space, drag = swipe
+        case centerHold       // center zone: waiting for 1s hold timer
+        case centerSwipe      // swiped from center horizontally, resolves on lift
+        case centerCursor     // cursor mode active: distance-from-center = speed
         case keyTap(KeySlot)  // near a key: tap = letter, drag = swipe
         case ringSwipe        // finger is swiping across the ring
         case backspace        // backspace gap zone
@@ -19,6 +21,22 @@ class TouchRouter {
     private var swipeTracker: SwipeTracker?
 
     private let swipeThreshold: CGFloat = 15.0
+
+    // MARK: - Cursor mode state
+
+    private var holdTimer: Timer?
+    private var cursorTimer: Timer?
+    private var cursorTouchPoint: CGPoint = .zero
+    private var cursorAccumulator: CGFloat = 0.0
+
+    /// Minimum distance from center (in pts) before cursor starts moving.
+    private let cursorDeadZone: CGFloat = 10.0
+    /// Characters per second at maximum distance.
+    private let cursorMaxSpeed: CGFloat = 20.0
+    /// Distance (in pts) at which max speed is reached.
+    private let cursorMaxDistance: CGFloat = 120.0
+    /// Cursor timer fires at 60 Hz for smooth movement.
+    private let cursorTickInterval: TimeInterval = 1.0 / 60.0
 
     init(ringView: RingView) {
         self.ringView = ringView
@@ -34,12 +52,15 @@ class TouchRouter {
         let center = CGPoint(x: ringView.bounds.midX, y: ringView.bounds.midY)
         let distFromCenter = GeometryHelpers.distanceFromCenter(point, center: center)
 
-        // 1. Center zone → tap = space, drag = transition to swipe
+        // 1. Center zone → hold for cursor mode, drag to swipe
         if distFromCenter < RingView.centerTapRadius {
-            mode = .centerTap
+            mode = .centerHold
+            cursorTouchPoint = point
             swipeTracker = SwipeTracker(slots: slots)
             swipeTracker?.ringCenter = center
             swipeTracker?.begin(at: point, initialSlot: nil)
+            ringView.showCenterHoldGlow()
+            startHoldTimer()
             return
         }
 
@@ -88,13 +109,31 @@ class TouchRouter {
         guard let ringView = ringView else { return }
 
         switch mode {
-        case .centerTap:
+        case .centerHold:
             if GeometryHelpers.distance(startPoint, point) > swipeThreshold {
-                mode = .ringSwipe
-                ringView.swipeTrail.beginTrail(at: startPoint)
-                swipeTracker?.addSample(point)
-                ringView.swipeTrail.addPoint(point)
+                cancelHoldTimer()
+                ringView.hideCursorMode()
+
+                let dx = point.x - startPoint.x
+                let dy = point.y - startPoint.y
+
+                if abs(dx) > abs(dy) * 1.5 {
+                    // Predominantly horizontal → center swipe, resolve on lift
+                    mode = .centerSwipe
+                } else {
+                    // Diagonal/vertical → ring swipe for word input
+                    mode = .ringSwipe
+                    ringView.swipeTrail.beginTrail(at: startPoint)
+                    swipeTracker?.addSample(point)
+                    ringView.swipeTrail.addPoint(point)
+                }
             }
+
+        case .centerSwipe:
+            break
+
+        case .centerCursor:
+            cursorTouchPoint = point
 
         case .keyTap:
             if GeometryHelpers.distance(startPoint, point) > swipeThreshold {
@@ -126,8 +165,20 @@ class TouchRouter {
         defer { cleanup() }
 
         switch mode {
-        case .centerTap:
-            ringView.delegate?.ringView(ringView, didTapSpace: ())
+        case .centerHold:
+            // Hold didn't complete and finger didn't move — do nothing
+            break
+
+        case .centerSwipe:
+            let dx = point.x - startPoint.x
+            if dx < 0 {
+                ringView.delegate?.ringView(ringView, didDeleteWord: ())
+            } else {
+                ringView.delegate?.ringView(ringView, didJumpToEnd: ())
+            }
+
+        case .centerCursor:
+            ringView.hideCursorMode()
 
         case .keyTap(let slot):
             if GeometryHelpers.distance(startPoint, point) <= swipeThreshold {
@@ -156,7 +207,61 @@ class TouchRouter {
     }
 
     func touchCancelled() {
+        ringView?.hideCursorMode()
         cleanup()
+    }
+
+    // MARK: - Hold timer
+
+    private func startHoldTimer() {
+        holdTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
+            self?.activateCursorMode()
+        }
+    }
+
+    private func cancelHoldTimer() {
+        holdTimer?.invalidate()
+        holdTimer = nil
+    }
+
+    private func activateCursorMode() {
+        holdTimer = nil
+        mode = .centerCursor
+        cursorAccumulator = 0.0
+        ringView?.showCursorActivation()
+        startCursorTimer()
+    }
+
+    // MARK: - Cursor timer
+
+    private func startCursorTimer() {
+        cursorTimer = Timer.scheduledTimer(withTimeInterval: cursorTickInterval,
+                                           repeats: true) { [weak self] _ in
+            self?.cursorTick()
+        }
+    }
+
+    private func cursorTick() {
+        guard let ringView = ringView else { return }
+        let center = CGPoint(x: ringView.bounds.midX, y: ringView.bounds.midY)
+
+        let dx = cursorTouchPoint.x - center.x
+        let dist = abs(dx)
+
+        guard dist > cursorDeadZone else { return }
+
+        // Linear ramp: 0 at dead zone edge, maxSpeed at maxDistance
+        let effectiveDist = min(dist - cursorDeadZone, cursorMaxDistance - cursorDeadZone)
+        let speed = cursorMaxSpeed * effectiveDist / (cursorMaxDistance - cursorDeadZone)
+        let direction: CGFloat = dx > 0 ? 1.0 : -1.0
+
+        cursorAccumulator += direction * speed * CGFloat(cursorTickInterval)
+
+        let steps = Int(cursorAccumulator)
+        if steps != 0 {
+            cursorAccumulator -= CGFloat(steps)
+            ringView.delegate?.ringView(ringView, didMoveCursor: steps)
+        }
     }
 
     // MARK: - Private
@@ -171,6 +276,9 @@ class TouchRouter {
     }
 
     private func cleanup() {
+        cancelHoldTimer()
+        cursorTimer?.invalidate()
+        cursorTimer = nil
         ringView?.unhighlightAllKeys()
         ringView?.swipeTrail.clearTrail()
         swipeTracker = nil

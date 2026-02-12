@@ -151,4 +151,16 @@ extension KeyboardViewController: RingViewDelegate {
         textDocumentProxy.insertText(String(character))
         checkAutoShift()
     }
+
+    func ringView(_ ringView: RingView, didMoveCursor offset: Int) {
+        textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
+    }
+
+    func ringView(_ ringView: RingView, didJumpToEnd: Void) {
+        let after = textDocumentProxy.documentContextAfterInput ?? ""
+        if !after.isEmpty {
+            textDocumentProxy.adjustTextPosition(byCharacterOffset: after.count)
+        }
+        checkAutoShift()
+    }
 }

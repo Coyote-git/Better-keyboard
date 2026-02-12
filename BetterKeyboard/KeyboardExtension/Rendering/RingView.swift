@@ -9,6 +9,8 @@ protocol RingViewDelegate: AnyObject {
     func ringView(_ ringView: RingView, didTapReturn: Void)
     func ringView(_ ringView: RingView, didDeleteWord: Void)
     func ringView(_ ringView: RingView, didTapPunctuation character: Character)
+    func ringView(_ ringView: RingView, didMoveCursor offset: Int)
+    func ringView(_ ringView: RingView, didJumpToEnd: Void)
 }
 
 class RingView: UIView {
@@ -229,6 +231,72 @@ class RingView: UIView {
         centerZone.fillColor = Self.dimColor.cgColor
         centerZone.strokeColor = Self.subtleStroke.cgColor
         centerZone.lineWidth = 0.5
+    }
+
+    // MARK: - Cursor mode visuals
+
+    /// Subtle glow building up during the 1s hold period.
+    func showCenterHoldGlow() {
+        let anim = CABasicAnimation(keyPath: "fillColor")
+        anim.toValue = Self.glowColor.withAlphaComponent(0.15).cgColor
+        anim.duration = 1.0
+        anim.fillMode = .forwards
+        anim.isRemovedOnCompletion = false
+        centerZone.add(anim, forKey: "holdGlow")
+    }
+
+    /// Large pulse ring + haptic when cursor mode activates.
+    func showCursorActivation() {
+        centerZone.removeAnimation(forKey: "holdGlow")
+
+        // Set center to active glow
+        centerZone.fillColor = Self.glowColor.withAlphaComponent(0.2).cgColor
+        centerZone.shadowColor = Self.glowColor.cgColor
+        centerZone.shadowRadius = 12
+        centerZone.shadowOpacity = 0.6
+        centerZone.shadowOffset = .zero
+
+        // Expanding pulse ring
+        let pulse = CAShapeLayer()
+        let r = Self.centerTapRadius
+        pulse.path = UIBezierPath(ovalIn: CGRect(x: center_.x - r, y: center_.y - r,
+                                                  width: r * 2, height: r * 2)).cgPath
+        pulse.fillColor = nil
+        pulse.strokeColor = Self.glowColor.cgColor
+        pulse.lineWidth = 2.0
+        pulse.opacity = 0
+        layer.addSublayer(pulse)
+
+        let expand = CABasicAnimation(keyPath: "transform.scale")
+        expand.fromValue = 1.0
+        expand.toValue = 4.0
+        expand.duration = 0.5
+
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0.8
+        fade.toValue = 0.0
+        fade.duration = 0.5
+
+        let group = CAAnimationGroup()
+        group.animations = [expand, fade]
+        group.duration = 0.5
+        group.isRemovedOnCompletion = false
+        group.fillMode = .forwards
+        pulse.add(group, forKey: "pulse")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            pulse.removeFromSuperlayer()
+        }
+
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    /// Reset center zone to default appearance.
+    func hideCursorMode() {
+        centerZone.removeAnimation(forKey: "holdGlow")
+        centerZone.fillColor = Self.dimColor.cgColor
+        centerZone.shadowOpacity = 0
+        centerZone.shadowRadius = 0
     }
 
     // MARK: - Buttons
