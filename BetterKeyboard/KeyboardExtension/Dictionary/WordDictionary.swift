@@ -11,13 +11,13 @@ class WordDictionary {
 
     /// Words that should always be capitalized (proper nouns, names).
     static let properNouns: Set<String> = [
-        // Names — unambiguous only (removed: ben, bob, carl, carol, charlie, dan,
+        // Names — unambiguous only (removed: ben, bob, carol, charlie, dan,
         // diana, evan, frank, grace, harry, jack, jake, jim, joe, jordan, josh,
         // justin, kate, kim, kyle, lily, logan, luke, mark, mary, max, mike,
         // morgan, nancy, nick, noah, olivia, pat, paul, peter, robin, sam, scott,
         // steve, taylor, tim, tom, tony, tyler, victoria, william)
         "aaron", "adam", "alex", "alice", "alison", "amanda", "amy", "andrew", "angela",
-        "anna", "brandon", "brian", "brooke", "cameron", "chris", "christian", "christina",
+        "anna", "brandon", "brian", "brooke", "cameron", "carl", "chris", "christian", "christina",
         "claude", "connor", "daniel", "dave", "david", "dylan", "edward", "elizabeth",
         "emily", "emma", "eric", "ethan", "gary", "george", "greg", "hannah", "heather",
         "henry", "jacob", "james", "jane", "jason", "jeff", "jennifer", "jenny", "jessica",

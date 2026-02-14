@@ -7,12 +7,6 @@ class KeyCapLayer: CAShapeLayer {
     let slot: KeySlot
     private let textLayer = CATextLayer()
 
-    // LED glow theme
-    static let glowColor = SwipeTrailLayer.glowColor
-    static let bracketColor = UIColor(white: 0.35, alpha: 1.0).cgColor
-    static let textColor = UIColor.white.cgColor
-    static let highlightTextColor = SwipeTrailLayer.glowColor.cgColor
-
     init(slot: KeySlot) {
         self.slot = slot
         super.init()
@@ -33,24 +27,42 @@ class KeyCapLayer: CAShapeLayer {
     }
 
     private func setupLayers() {
-        fillColor = nil  // transparent — bracket outline only
-        strokeColor = Self.bracketColor
-        lineWidth = 1.0
+        let theme = KeyboardTheme.current
+
+        fillColor = nil
+        strokeColor = theme.keyStrokeColor.cgColor
+        lineWidth = theme.keyStrokeWidth
         lineCap = .round
 
-        // No glow by default
-        shadowColor = Self.glowColor.cgColor
+        shadowColor = theme.glowColor.cgColor
         shadowRadius = 0
         shadowOpacity = 0
         shadowOffset = .zero
 
         textLayer.string = slot.letterString
+
+        let fontSize: CGFloat
+        let fontWeight: UIFont.Weight
+        let textColor: UIColor
         switch slot.ring {
-        case .inner: textLayer.fontSize = 16
-        case .outer: textLayer.fontSize = 13
+        case .inner:
+            fontSize = theme.innerRingFontSize
+            fontWeight = theme.innerRingFontWeight
+            textColor = theme.innerRingTextColor
+        case .outer:
+            fontSize = theme.outerRingFontSize
+            fontWeight = theme.outerRingFontWeight
+            textColor = theme.outerRingTextColor
         }
+
+        if theme.useMonospaceFont {
+            textLayer.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: fontWeight)
+        } else {
+            textLayer.font = UIFont.systemFont(ofSize: fontSize, weight: fontWeight)
+        }
+        textLayer.fontSize = fontSize
         textLayer.alignmentMode = .center
-        textLayer.foregroundColor = Self.textColor
+        textLayer.foregroundColor = textColor.cgColor
         textLayer.contentsScale = UIScreen.main.scale
         textLayer.isWrapped = false
         addSublayer(textLayer)
@@ -58,13 +70,13 @@ class KeyCapLayer: CAShapeLayer {
 
     /// Draw the key as two bracket marks at the angular edges of the key's wedge.
     func updateWedge(center: CGPoint, scale: CGFloat) {
-        let halfAngle = (slot.angularWidthDeg / 2.0) - 1.0  // 1° inset gap
+        let theme = KeyboardTheme.current
+        let halfAngle = (slot.angularWidthDeg / 2.0) - theme.keyGapInsetDeg
         guard halfAngle > 0 else { return }
 
         let startDeg = slot.angleDeg - halfAngle
         let endDeg = slot.angleDeg + halfAngle
 
-        // Bracket radii: inner and outer keys meet at the midpoint (no gap)
         let rMin: CGFloat
         let rMax: CGFloat
         switch slot.ring {
@@ -76,24 +88,23 @@ class KeyCapLayer: CAShapeLayer {
             rMax = RingLayoutConfig.outerWedgeRMax * scale
         }
 
-        // Bracket arm: 30% of the usable half-angle on each side
-        let armDeg = halfAngle * 0.55
+        if theme.showKeyBrackets {
+            let armDeg = halfAngle * 0.55
+            let bracketPath = UIBezierPath()
 
-        let bracketPath = UIBezierPath()
+            drawBracket(into: bracketPath, center: center,
+                        edgeDeg: startDeg, armDeg: armDeg,
+                        rMin: rMin, rMax: rMax, openToward: 1.0)
 
-        // Left bracket (at startDeg side)
-        drawBracket(into: bracketPath, center: center,
-                    edgeDeg: startDeg, armDeg: armDeg,
-                    rMin: rMin, rMax: rMax, openToward: 1.0)
+            drawBracket(into: bracketPath, center: center,
+                        edgeDeg: endDeg, armDeg: armDeg,
+                        rMin: rMin, rMax: rMax, openToward: -1.0)
 
-        // Right bracket (at endDeg side)
-        drawBracket(into: bracketPath, center: center,
-                    edgeDeg: endDeg, armDeg: armDeg,
-                    rMin: rMin, rMax: rMax, openToward: -1.0)
+            path = bracketPath.cgPath
+        } else {
+            path = nil
+        }
 
-        path = bracketPath.cgPath
-
-        // Position text at radial center of bracket (not ring radius)
         let midR = (rMin + rMax) / 2.0
         let angleRad = -slot.angleDeg * .pi / 180.0
         let pos = CGPoint(x: center.x + midR * cos(angleRad),
@@ -103,16 +114,11 @@ class KeyCapLayer: CAShapeLayer {
         textLayer.bounds = CGRect(origin: .zero, size: CGSize(width: textW, height: textH))
         textLayer.position = pos
 
-        // Radial rotation: always upright, flipped at equator.
-        // Top half (0°–180°): bottom of letter faces center → top faces up/outward
-        // Bottom half (180°–360°): top of letter faces center → top faces up
         let isTopHalf = slot.angleDeg > 0 && slot.angleDeg < 180
         let rotationDeg = isTopHalf ? (90.0 - slot.angleDeg) : (270.0 - slot.angleDeg)
         textLayer.transform = CATransform3DMakeRotation(rotationDeg * .pi / 180.0, 0, 0, 1)
     }
 
-    /// Draw one bracket arm (like `[` or `]`) as a single connected stroke:
-    /// outer arc tip → radial edge → inner arc tip.
     private func drawBracket(into path: UIBezierPath, center: CGPoint,
                              edgeDeg: CGFloat, armDeg: CGFloat,
                              rMin: CGFloat, rMax: CGFloat,
@@ -121,52 +127,47 @@ class KeyCapLayer: CAShapeLayer {
         let armEndDeg = edgeDeg + armDeg * openToward
         let armEndRad = -armEndDeg * .pi / 180.0
 
-        // Start at outer arc tip (the far end of the arm)
         path.move(to: CGPoint(x: center.x + rMax * cos(armEndRad),
                                y: center.y + rMax * sin(armEndRad)))
 
-        // Arc along outer radius back to the edge (short arc)
         path.addArc(withCenter: center, radius: rMax,
                     startAngle: armEndRad, endAngle: edgeRad,
                     clockwise: openToward > 0)
 
-        // Radial line down to inner radius
         path.addLine(to: CGPoint(x: center.x + rMin * cos(edgeRad),
                                   y: center.y + rMin * sin(edgeRad)))
 
-        // Arc along inner radius to inner arc tip (short arc)
         path.addArc(withCenter: center, radius: rMin,
                     startAngle: edgeRad, endAngle: armEndRad,
                     clockwise: openToward < 0)
     }
 
     func setHighlighted(_ highlighted: Bool) {
+        let theme = KeyboardTheme.current
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         if highlighted {
-            strokeColor = Self.glowColor.cgColor
-            textLayer.foregroundColor = Self.highlightTextColor
+            strokeColor = theme.glowColor.cgColor
+            textLayer.foregroundColor = theme.highlightTextColor.cgColor
             shadowRadius = 10
             shadowOpacity = 0.9
-
-            // Pulse animation
-            let pulse = CAKeyframeAnimation(keyPath: "transform.scale")
-            pulse.values = [1.0, 1.25, 1.0]
-            pulse.keyTimes = [0, 0.3, 1.0]
-            pulse.duration = 0.3
-            pulse.isRemovedOnCompletion = true
-            textLayer.add(pulse, forKey: "pulse")
         } else {
-            strokeColor = Self.bracketColor
-            textLayer.foregroundColor = Self.textColor
+            strokeColor = theme.keyStrokeColor.cgColor
+            let textColor: UIColor = slot.ring == .inner
+                ? theme.innerRingTextColor : theme.outerRingTextColor
+            textLayer.foregroundColor = textColor.cgColor
             shadowRadius = 0
             shadowOpacity = 0
         }
-    }
+        CATransaction.commit()
 
-    func refreshColors() {
-        // For dark/light mode changes — in LED mode, mostly static
-        if shadowOpacity == 0 {
-            strokeColor = Self.bracketColor
-            textLayer.foregroundColor = Self.textColor
+        if highlighted {
+            let pulse = CAKeyframeAnimation(keyPath: "transform.scale")
+            pulse.values = [1.0, 1.25, 1.0]
+            pulse.keyTimes = [0, 0.15, 1.0]
+            pulse.duration = 0.2
+            pulse.isRemovedOnCompletion = true
+            textLayer.add(pulse, forKey: "pulse")
         }
     }
 }

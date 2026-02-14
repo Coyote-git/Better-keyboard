@@ -100,16 +100,18 @@ class SwipeDecoder {
             let trimPenalty = CGFloat(trim) * 6.0
 
             // 2. Subsequence matching against dictionary
+            // Require longer words for longer swipes to prevent "do" beating "decides"
+            let minLength = trimmedVisited.count >= 6 ? 4 : (trimmedVisited.count >= 4 ? 3 : 2)
             let candidates = dictionary.candidates(
                 startingWith: firstLetter,
                 endingWith: lastLetter,
-                lengthRange: 2...trimmedVisited.count
+                lengthRange: minLength...trimmedVisited.count
             )
 
             for word in candidates {
                 if let score = subsequenceScore(word: word, visited: trimmedVisited, slots: trimmedSlots) {
-                    let freqPenalty = CGFloat(dictionary.frequencyRank(of: word)) * 0.02
-                    let total = score + freqPenalty + trimPenalty
+                    let nounPenalty: CGFloat = WordDictionary.properNouns.contains(word) ? 8.0 : 0.0
+                    let total = score + trimPenalty + nounPenalty
                     if total < bestScore {
                         bestScore = total
                         bestWord = word
@@ -199,7 +201,7 @@ class SwipeDecoder {
         let spanPenalty = (1.0 - spanRatio) * 30.0
 
         // 3. Word length bonus: prefer longer words (more intentional)
-        let lengthBonus = -CGFloat(wordChars.count) * 2.0
+        let lengthBonus = -CGFloat(wordChars.count) * 3.5
 
         return CGFloat(totalGap) * 3.0 + spanPenalty + lengthBonus
     }

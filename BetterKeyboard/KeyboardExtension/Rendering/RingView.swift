@@ -11,6 +11,7 @@ protocol RingViewDelegate: AnyObject {
     func ringView(_ ringView: RingView, didTapPunctuation character: Character)
     func ringView(_ ringView: RingView, didMoveCursor offset: Int)
     func ringView(_ ringView: RingView, didJumpToEnd: Void)
+    func ringView(_ ringView: RingView, didTapDismiss: Void)
 }
 
 class RingView: UIView {
@@ -28,13 +29,11 @@ class RingView: UIView {
 
     // MARK: - Layers
 
-    private let innerRingArc = CAShapeLayer()
-    private let outerRingArc = CAShapeLayer()
     private let backspaceZone = CAShapeLayer()
     private let spaceZone = CAShapeLayer()
     private let centerZone = CAShapeLayer()
-    private let backspaceLabel = CATextLayer()
-    private let spaceLabel = CATextLayer()
+    private let backspaceIcon = CAShapeLayer()
+    private let spaceIcon = CAShapeLayer()
     private var keyCapLayers: [KeyCapLayer] = []
     let swipeTrail = SwipeTrailLayer()
 
@@ -42,14 +41,8 @@ class RingView: UIView {
 
     private var punctuationButtons: [UIButton] = []
     private var functionButtons: [UIButton] = []
-
-    // MARK: - Theme
-
-    private static let bgColor = UIColor.black
-    private static let dimColor = UIColor(white: 0.15, alpha: 1.0)
-    private static let subtleStroke = UIColor(white: 0.25, alpha: 1.0)
-    private static let labelColor = UIColor(white: 0.5, alpha: 1.0)
-    private static let glowColor = SwipeTrailLayer.glowColor
+    private let themeButton = UIButton(type: .system)
+    private let dismissButton = UIButton(type: .system)
 
     // MARK: - Input
 
@@ -65,7 +58,7 @@ class RingView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = Self.bgColor
+        backgroundColor = KeyboardTheme.current.backgroundColor
         setupLayers()
         setupButtons()
     }
@@ -89,12 +82,50 @@ class RingView: UIView {
         rebuildLayers()
     }
 
+    // MARK: - Theme
+
+    func reapplyTheme() {
+        let theme = KeyboardTheme.current
+        backgroundColor = theme.backgroundColor
+        swipeTrail.applyTheme()
+
+        rebuildLayers()
+
+        for btn in punctuationButtons + functionButtons {
+            btn.backgroundColor = theme.buttonFillColor
+            btn.setTitleColor(theme.buttonTextColor, for: .normal)
+            btn.layer.cornerRadius = theme.buttonCornerRadius
+            if let borderColor = theme.buttonBorderColor {
+                btn.layer.borderColor = borderColor.cgColor
+                btn.layer.borderWidth = theme.buttonBorderWidth
+            } else {
+                btn.layer.borderWidth = 0
+            }
+        }
+
+        themeButton.tintColor = theme.buttonTextColor
+        dismissButton.tintColor = theme.buttonTextColor
+    }
+
     // MARK: - Shift
 
-    func updateShiftAppearance(isShifted: Bool) {
+    func updateShiftAppearance(isShifted: Bool, isCapsLocked: Bool) {
+        let theme = KeyboardTheme.current
         guard !functionButtons.isEmpty else { return }
-        functionButtons[0].backgroundColor = isShifted
-            ? Self.glowColor.withAlphaComponent(0.3) : Self.dimColor
+        let btn = functionButtons[0]
+        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        btn.setTitle(nil, for: .normal)
+
+        if isCapsLocked {
+            btn.setImage(UIImage(systemName: "capslock.fill")?.withConfiguration(config), for: .normal)
+            btn.tintColor = theme.buttonTextColor
+            btn.backgroundColor = theme.glowColor.withAlphaComponent(0.6)
+        } else {
+            btn.setImage(UIImage(systemName: "shift")?.withConfiguration(config), for: .normal)
+            btn.tintColor = theme.buttonTextColor
+            btn.backgroundColor = isShifted
+                ? theme.glowColor.withAlphaComponent(0.3) : theme.buttonFillColor
+        }
     }
 
     // MARK: - Key highlighting
@@ -111,11 +142,11 @@ class RingView: UIView {
     // MARK: - Layer setup
 
     private func setupLayers() {
-        for l in [innerRingArc, outerRingArc, backspaceZone, spaceZone, centerZone] {
+        for l in [backspaceZone, spaceZone, centerZone] {
             layer.addSublayer(l)
         }
-        layer.addSublayer(backspaceLabel)
-        layer.addSublayer(spaceLabel)
+        layer.addSublayer(backspaceIcon)
+        layer.addSublayer(spaceIcon)
         layer.addSublayer(swipeTrail)
     }
 
@@ -123,7 +154,6 @@ class RingView: UIView {
         keyCapLayers.forEach { $0.removeFromSuperlayer() }
         keyCapLayers.removeAll()
 
-        drawRingArcs()
         drawGapZones()
         drawCenterZone()
 
@@ -140,50 +170,25 @@ class RingView: UIView {
         layoutButtons()
     }
 
-    // MARK: - Ring arc drawing
-
-    private func drawRingArcs() {
-        let seg1Start = -RingLayoutConfig.arcStartDeg * .pi / 180.0
-        let seg1End = -RingLayoutConfig.arcEndDeg * .pi / 180.0
-        let seg2Start = -(RingLayoutConfig.leftGapAngle + RingLayoutConfig.gapWidthDeg / 2.0) * .pi / 180.0
-        let seg2End = -(360.0 - RingLayoutConfig.gapWidthDeg / 2.0) * .pi / 180.0
-
-        for (ringLayer, radius) in [(innerRingArc, RingLayoutConfig.innerRadius),
-                                     (outerRingArc, RingLayoutConfig.outerRadius)] {
-            let r = radius * currentScale
-            let path = UIBezierPath()
-            path.addArc(withCenter: center_, radius: r,
-                        startAngle: seg1Start, endAngle: seg1End, clockwise: false)
-            path.move(to: CGPoint(x: center_.x + r * cos(seg2Start),
-                                   y: center_.y + r * sin(seg2Start)))
-            path.addArc(withCenter: center_, radius: r,
-                        startAngle: seg2Start, endAngle: seg2End, clockwise: false)
-            ringLayer.path = path.cgPath
-            ringLayer.fillColor = nil
-            ringLayer.strokeColor = Self.subtleStroke.cgColor
-            ringLayer.lineWidth = 0.5
-            ringLayer.lineDashPattern = [4, 6]
-        }
-    }
-
     // MARK: - Gap zone drawing
 
     private func drawGapZones() {
+        let theme = KeyboardTheme.current
+
         drawGapWedge(layer: backspaceZone,
                      gapCenter: RingLayoutConfig.leftGapAngle,
-                     fillColor: UIColor.systemRed.withAlphaComponent(0.08).cgColor)
-        positionGapLabel(backspaceLabel, text: "\u{232B}",
-                         gapCenter: RingLayoutConfig.leftGapAngle, fontSize: 20)
+                     fillColor: theme.backspaceFillColor.cgColor)
+        drawBackspaceSlashes(color: theme.backspaceIconColor)
 
         drawGapWedge(layer: spaceZone,
                      gapCenter: RingLayoutConfig.rightGapAngle,
-                     fillColor: Self.glowColor.withAlphaComponent(0.04).cgColor)
-        positionGapLabel(spaceLabel, text: "[_]",
-                         gapCenter: RingLayoutConfig.rightGapAngle, fontSize: 14)
+                     fillColor: theme.spaceFillColor.cgColor)
+        drawCursorChevrons(color: theme.spaceIconColor)
     }
 
     private func drawGapWedge(layer wedgeLayer: CAShapeLayer,
                               gapCenter: CGFloat, fillColor: CGColor) {
+        let theme = KeyboardTheme.current
         let halfGap = RingLayoutConfig.gapWidthDeg / 2.0
         let startRad = -(gapCenter - halfGap) * .pi / 180.0
         let endRad = -(gapCenter + halfGap) * .pi / 180.0
@@ -200,36 +205,71 @@ class RingView: UIView {
 
         wedgeLayer.path = path.cgPath
         wedgeLayer.fillColor = fillColor
-        wedgeLayer.strokeColor = Self.subtleStroke.withAlphaComponent(0.3).cgColor
+        wedgeLayer.strokeColor = theme.gapStrokeColor.cgColor
         wedgeLayer.lineWidth = 0.5
     }
 
-    private func positionGapLabel(_ textLayer: CATextLayer, text: String,
-                                  gapCenter: CGFloat, fontSize: CGFloat) {
+    /// Draw 45-degree slashes in the backspace gap zone.
+    private func drawBackspaceSlashes(color: UIColor) {
         let midR = (RingLayoutConfig.outerWedgeRMin + RingLayoutConfig.outerWedgeRMax) / 2.0 * currentScale
-        let angleRad = -gapCenter * .pi / 180.0
+        let angleRad = -RingLayoutConfig.leftGapAngle * .pi / 180.0
         let cx = center_.x + midR * cos(angleRad)
         let cy = center_.y + midR * sin(angleRad)
 
-        let size = CGSize(width: 60, height: 24)
-        textLayer.frame = CGRect(x: cx - size.width / 2, y: cy - size.height / 2,
-                                 width: size.width, height: size.height)
-        textLayer.string = text
-        textLayer.fontSize = fontSize
-        textLayer.alignmentMode = .center
-        textLayer.foregroundColor = Self.labelColor.cgColor
-        textLayer.contentsScale = UIScreen.main.scale
+        let slashLen: CGFloat = 10
+        let spacing: CGFloat = 6
+        let path = UIBezierPath()
+
+        for i in -1...1 {
+            let ox = cx + CGFloat(i) * spacing
+            path.move(to: CGPoint(x: ox - slashLen / 2, y: cy + slashLen / 2))
+            path.addLine(to: CGPoint(x: ox + slashLen / 2, y: cy - slashLen / 2))
+        }
+
+        backspaceIcon.path = path.cgPath
+        backspaceIcon.strokeColor = color.cgColor
+        backspaceIcon.lineWidth = 2.0
+        backspaceIcon.fillColor = nil
+        backspaceIcon.lineCap = .round
+    }
+
+    /// Draw right-pointing chevrons in the cursor-advance gap zone.
+    private func drawCursorChevrons(color: UIColor) {
+        let midR = (RingLayoutConfig.outerWedgeRMin + RingLayoutConfig.outerWedgeRMax) / 2.0 * currentScale
+        let angleRad = -RingLayoutConfig.rightGapAngle * .pi / 180.0
+        let cx = center_.x + midR * cos(angleRad)
+        let cy = center_.y + midR * sin(angleRad)
+
+        let chevH: CGFloat = 10
+        let chevW: CGFloat = 6
+        let spacing: CGFloat = 7
+        let path = UIBezierPath()
+
+        for i in -1...1 {
+            let ox = cx + CGFloat(i) * spacing
+            path.move(to: CGPoint(x: ox - chevW / 2, y: cy - chevH / 2))
+            path.addLine(to: CGPoint(x: ox + chevW / 2, y: cy))
+            path.addLine(to: CGPoint(x: ox - chevW / 2, y: cy + chevH / 2))
+        }
+
+        spaceIcon.path = path.cgPath
+        spaceIcon.strokeColor = color.cgColor
+        spaceIcon.lineWidth = 2.0
+        spaceIcon.fillColor = nil
+        spaceIcon.lineCap = .round
+        spaceIcon.lineJoin = .round
     }
 
     // MARK: - Center zone
 
     private func drawCenterZone() {
+        let theme = KeyboardTheme.current
         let r = Self.centerTapRadius
         let path = UIBezierPath(ovalIn: CGRect(x: center_.x - r, y: center_.y - r,
                                                width: r * 2, height: r * 2))
         centerZone.path = path.cgPath
-        centerZone.fillColor = Self.dimColor.cgColor
-        centerZone.strokeColor = Self.subtleStroke.cgColor
+        centerZone.fillColor = theme.centerFillColor.cgColor
+        centerZone.strokeColor = theme.centerStrokeColor.cgColor
         centerZone.lineWidth = 0.5
     }
 
@@ -238,7 +278,7 @@ class RingView: UIView {
     /// Subtle glow building up during the 1s hold period.
     func showCenterHoldGlow() {
         let anim = CABasicAnimation(keyPath: "fillColor")
-        anim.toValue = Self.glowColor.withAlphaComponent(0.15).cgColor
+        anim.toValue = KeyboardTheme.current.glowColor.withAlphaComponent(0.15).cgColor
         anim.duration = 1.0
         anim.fillMode = .forwards
         anim.isRemovedOnCompletion = false
@@ -247,22 +287,21 @@ class RingView: UIView {
 
     /// Large pulse ring + haptic when cursor mode activates.
     func showCursorActivation() {
+        let theme = KeyboardTheme.current
         centerZone.removeAnimation(forKey: "holdGlow")
 
-        // Set center to active glow
-        centerZone.fillColor = Self.glowColor.withAlphaComponent(0.2).cgColor
-        centerZone.shadowColor = Self.glowColor.cgColor
+        centerZone.fillColor = theme.glowColor.withAlphaComponent(0.2).cgColor
+        centerZone.shadowColor = theme.glowColor.cgColor
         centerZone.shadowRadius = 12
         centerZone.shadowOpacity = 0.6
         centerZone.shadowOffset = .zero
 
-        // Expanding pulse ring
         let pulse = CAShapeLayer()
         let r = Self.centerTapRadius
         pulse.path = UIBezierPath(ovalIn: CGRect(x: center_.x - r, y: center_.y - r,
                                                   width: r * 2, height: r * 2)).cgPath
         pulse.fillColor = nil
-        pulse.strokeColor = Self.glowColor.cgColor
+        pulse.strokeColor = theme.glowColor.cgColor
         pulse.lineWidth = 2.0
         pulse.opacity = 0
         layer.addSublayer(pulse)
@@ -294,7 +333,7 @@ class RingView: UIView {
     /// Reset center zone to default appearance.
     func hideCursorMode() {
         centerZone.removeAnimation(forKey: "holdGlow")
-        centerZone.fillColor = Self.dimColor.cgColor
+        centerZone.fillColor = KeyboardTheme.current.centerFillColor.cgColor
         centerZone.shadowOpacity = 0
         centerZone.shadowRadius = 0
     }
@@ -302,33 +341,65 @@ class RingView: UIView {
     // MARK: - Buttons
 
     private func setupButtons() {
+        let theme = KeyboardTheme.current
+
         let punctTitles = [".", ",", "'", "?", "!"]
         for (i, title) in punctTitles.enumerated() {
             let btn = UIButton(type: .system)
             btn.setTitle(title, for: .normal)
             btn.titleLabel?.font = .systemFont(ofSize: 16, weight: .medium)
-            btn.setTitleColor(.white, for: .normal)
-            btn.backgroundColor = Self.dimColor
-            btn.layer.cornerRadius = 8
+            btn.setTitleColor(theme.buttonTextColor, for: .normal)
+            btn.backgroundColor = theme.buttonFillColor
+            btn.layer.cornerRadius = theme.buttonCornerRadius
+            if let borderColor = theme.buttonBorderColor {
+                btn.layer.borderColor = borderColor.cgColor
+                btn.layer.borderWidth = theme.buttonBorderWidth
+            }
             btn.tag = i
             btn.addTarget(self, action: #selector(punctuationTapped(_:)), for: .touchUpInside)
             addSubview(btn)
             punctuationButtons.append(btn)
         }
 
-        let funcTitles = ["\u{21E7}", "123", "\u{21B5}"]
+        let funcTitles: [String?] = [nil, "123", "\u{21B5}"]
+        let funcImages: [String?] = ["shift", nil, nil]
         for (i, title) in funcTitles.enumerated() {
             let btn = UIButton(type: .system)
-            btn.setTitle(title, for: .normal)
+            if let title = title {
+                btn.setTitle(title, for: .normal)
+            }
+            if let imageName = funcImages[i] {
+                let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+                btn.setImage(UIImage(systemName: imageName)?.withConfiguration(config), for: .normal)
+                btn.tintColor = theme.buttonTextColor
+            }
             btn.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
-            btn.setTitleColor(.white, for: .normal)
-            btn.backgroundColor = Self.dimColor
-            btn.layer.cornerRadius = 8
+            btn.setTitleColor(theme.buttonTextColor, for: .normal)
+            btn.backgroundColor = theme.buttonFillColor
+            btn.layer.cornerRadius = theme.buttonCornerRadius
+            if let borderColor = theme.buttonBorderColor {
+                btn.layer.borderColor = borderColor.cgColor
+                btn.layer.borderWidth = theme.buttonBorderWidth
+            }
             btn.tag = i
             btn.addTarget(self, action: #selector(functionTapped(_:)), for: .touchUpInside)
             addSubview(btn)
             functionButtons.append(btn)
         }
+
+        // Theme toggle
+        themeButton.setImage(UIImage(systemName: "circle.lefthalf.filled"), for: .normal)
+        themeButton.tintColor = theme.buttonTextColor
+        themeButton.addTarget(self, action: #selector(themeTapped), for: .touchUpInside)
+        addSubview(themeButton)
+
+        // Dismiss keyboard
+        let dismissConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        dismissButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down")?.withConfiguration(dismissConfig), for: .normal)
+        dismissButton.tintColor = theme.buttonTextColor
+        dismissButton.addTarget(self, action: #selector(dismissTapped), for: .touchUpInside)
+        addSubview(dismissButton)
+
     }
 
     private func layoutButtons() {
@@ -350,6 +421,9 @@ class RingView: UIView {
                                y: center_.y + radius * sin(rad) - btnSize / 2,
                                width: btnSize, height: btnSize)
         }
+
+        themeButton.frame = CGRect(x: 8, y: 4, width: 30, height: 30)
+        dismissButton.frame = CGRect(x: bounds.width - 38, y: 4, width: 30, height: 30)
     }
 
     @objc private func punctuationTapped(_ sender: UIButton) {
@@ -367,13 +441,23 @@ class RingView: UIView {
         }
     }
 
+    @objc private func themeTapped() {
+        KeyboardTheme.cycle()
+        reapplyTheme()
+    }
+
+    @objc private func dismissTapped() {
+        delegate?.ringView(self, didTapDismiss: ())
+    }
+
     private func toggleSymbolMode() {
+        let theme = KeyboardTheme.current
         isSymbolMode.toggle()
         slots = isSymbolMode ? symbolSlots : letterSlots
         rebuildLayers()
         guard functionButtons.count > 1 else { return }
         functionButtons[1].backgroundColor = isSymbolMode
-            ? Self.glowColor.withAlphaComponent(0.3) : Self.dimColor
+            ? theme.glowColor.withAlphaComponent(0.3) : theme.buttonFillColor
     }
 
     // MARK: - Touch handling

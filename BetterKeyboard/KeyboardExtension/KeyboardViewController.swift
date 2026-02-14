@@ -6,6 +6,8 @@ class KeyboardViewController: UIInputViewController {
     private var wordDictionary: WordDictionary!
     private var swipeDecoder: SwipeDecoder!
     private var isShifted = false
+    private var isCapsLocked = false
+    private var lastShiftTapTime: TimeInterval = 0
 
     // MARK: - Lifecycle
 
@@ -85,7 +87,7 @@ class KeyboardViewController: UIInputViewController {
     }
 
     private func checkAutoShift() {
-        guard !isShifted else { return }
+        guard !isShifted, !isCapsLocked else { return }
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
         let shouldShift = before.isEmpty
             || before.hasSuffix(". ")
@@ -94,7 +96,7 @@ class KeyboardViewController: UIInputViewController {
             || before.hasSuffix("\n")
         if shouldShift {
             isShifted = true
-            ringView.updateShiftAppearance(isShifted: true)
+            ringView.updateShiftAppearance(isShifted: true, isCapsLocked: isCapsLocked)
         }
     }
 }
@@ -107,8 +109,10 @@ extension KeyboardViewController: RingViewDelegate {
         var text = String(letter)
         if isShifted {
             text = text.uppercased()
-            isShifted = false
-            ringView.updateShiftAppearance(isShifted: false)
+            if !isCapsLocked {
+                isShifted = false
+                ringView.updateShiftAppearance(isShifted: false, isCapsLocked: false)
+            }
         } else {
             text = text.lowercased()
         }
@@ -141,21 +145,45 @@ extension KeyboardViewController: RingViewDelegate {
             text = text.prefix(1).uppercased() + text.dropFirst()
         }
         if isShifted {
-            text = text.prefix(1).uppercased() + text.dropFirst()
-            isShifted = false
-            ringView.updateShiftAppearance(isShifted: false)
+            if isCapsLocked {
+                text = text.uppercased()
+            } else {
+                text = text.prefix(1).uppercased() + text.dropFirst()
+                isShifted = false
+                ringView.updateShiftAppearance(isShifted: false, isCapsLocked: false)
+            }
         }
+
+        // Insert space before if needed, and autocorrect previous word
+        // (fixes "i" not capitalizing when followed by a swipe)
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        let prefix = (!before.isEmpty && !before.hasSuffix(" ")) ? " " : ""
+        if !before.isEmpty && !before.hasSuffix(" ") {
+            textDocumentProxy.insertText(" ")
+            autoCorrectLastWord()
+        }
+
         let afterInput = textDocumentProxy.documentContextAfterInput ?? ""
         let suffix = afterInput.hasPrefix(" ") ? "" : " "
-        textDocumentProxy.insertText(prefix + text + suffix)
+        textDocumentProxy.insertText(text + suffix)
         checkAutoShift()
     }
 
     func ringView(_ ringView: RingView, didTapShift: Void) {
-        isShifted.toggle()
-        ringView.updateShiftAppearance(isShifted: isShifted)
+        let now = CACurrentMediaTime()
+
+        if isCapsLocked {
+            isCapsLocked = false
+            isShifted = false
+        } else if (now - lastShiftTapTime) < 0.4 {
+            // Double tap from any state → caps lock
+            isCapsLocked = true
+            isShifted = true
+        } else {
+            isShifted.toggle()
+        }
+
+        lastShiftTapTime = now
+        ringView.updateShiftAppearance(isShifted: isShifted, isCapsLocked: isCapsLocked)
     }
 
     func ringView(_ ringView: RingView, didTapReturn: Void) {
@@ -196,8 +224,11 @@ extension KeyboardViewController: RingViewDelegate {
         guard let before = textDocumentProxy.documentContextBeforeInput,
               !before.isEmpty else { return false }
 
-        // The word is right before the cursor (no trailing space)
-        let components = before.split(whereSeparator: { $0.isWhitespace })
+        // Swiped words have a trailing space; tapped words don't
+        let hasTrailingSpace = before.hasSuffix(" ")
+        let trimmed = hasTrailingSpace ? String(before.dropLast()) : before
+
+        let components = trimmed.split(whereSeparator: { $0.isWhitespace })
         guard let lastWordSub = components.last else { return false }
         let lastWord = String(lastWordSub)
 
@@ -210,13 +241,18 @@ extension KeyboardViewController: RingViewDelegate {
             replacement = replacement.prefix(1).uppercased() + replacement.dropFirst()
         }
 
-        for _ in 0..<lastWord.count { textDocumentProxy.deleteBackward() }
-        textDocumentProxy.insertText(replacement)
+        let deleteCount = lastWord.count + (hasTrailingSpace ? 1 : 0)
+        for _ in 0..<deleteCount { textDocumentProxy.deleteBackward() }
+        textDocumentProxy.insertText(replacement + (hasTrailingSpace ? " " : ""))
         return true
     }
 
     func ringView(_ ringView: RingView, didMoveCursor offset: Int) {
         textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
+    }
+
+    func ringView(_ ringView: RingView, didTapDismiss: Void) {
+        dismissKeyboard()
     }
 
     func ringView(_ ringView: RingView, didJumpToEnd: Void) {

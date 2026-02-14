@@ -2,25 +2,14 @@ import UIKit
 import QuartzCore
 
 /// Renders the visible swipe path as the user drags their finger.
+/// Old segments fade away after ~1 second, creating a comet-tail effect.
 class SwipeTrailLayer: CAShapeLayer {
 
-    static let glowColor = UIColor(red: 1.0, green: 0.1, blue: 0.55, alpha: 1.0) // hot pink
-
-    private var points: [CGPoint] = []
+    private var timedPoints: [(point: CGPoint, time: TimeInterval)] = []
 
     override init() {
         super.init()
-        fillColor = nil
-        strokeColor = Self.glowColor.withAlphaComponent(0.8).cgColor
-        lineWidth = 2.5
-        lineCap = .round
-        lineJoin = .round
-
-        // LED glow
-        shadowColor = Self.glowColor.cgColor
-        shadowRadius = 8
-        shadowOpacity = 0.9
-        shadowOffset = .zero
+        applyTheme()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -29,33 +18,54 @@ class SwipeTrailLayer: CAShapeLayer {
         super.init(layer: layer)
     }
 
+    func applyTheme() {
+        let theme = KeyboardTheme.current
+        fillColor = nil
+        strokeColor = theme.trailColor.withAlphaComponent(0.8).cgColor
+        lineWidth = theme.trailLineWidth
+        lineCap = .round
+        lineJoin = .round
+
+        shadowColor = theme.trailColor.cgColor
+        shadowRadius = theme.trailGlowRadius
+        shadowOpacity = theme.trailGlowOpacity
+        shadowOffset = .zero
+    }
+
     func beginTrail(at point: CGPoint) {
-        points = [point]
+        timedPoints = [(point, CACurrentMediaTime())]
         updatePath()
     }
 
     func addPoint(_ point: CGPoint) {
-        points.append(point)
-        if points.count > 200 {
-            points = stride(from: 0, to: points.count, by: 2).map { points[$0] }
+        let now = CACurrentMediaTime()
+        timedPoints.append((point, now))
+
+        // Trim points older than 1 second
+        let cutoff = now - 1.0
+        if let firstValid = timedPoints.firstIndex(where: { $0.time >= cutoff }) {
+            if firstValid > 0 {
+                timedPoints.removeFirst(firstValid)
+            }
         }
+
         updatePath()
     }
 
     func clearTrail() {
-        points = []
+        timedPoints = []
         path = nil
     }
 
     private func updatePath() {
-        guard points.count >= 2 else {
+        guard timedPoints.count >= 2 else {
             path = nil
             return
         }
         let bezier = UIBezierPath()
-        bezier.move(to: points[0])
-        for p in points.dropFirst() {
-            bezier.addLine(to: p)
+        bezier.move(to: timedPoints[0].point)
+        for tp in timedPoints.dropFirst() {
+            bezier.addLine(to: tp.point)
         }
         path = bezier.cgPath
     }
