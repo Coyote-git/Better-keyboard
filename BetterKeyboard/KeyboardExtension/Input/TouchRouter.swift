@@ -44,7 +44,7 @@ class TouchRouter {
 
     // MARK: - Touch events
 
-    func touchBegan(_ point: CGPoint) {
+    func touchBegan(_ point: CGPoint, timestamp: TimeInterval) {
         guard let ringView = ringView else { return }
         startPoint = point
 
@@ -58,7 +58,7 @@ class TouchRouter {
             cursorTouchPoint = point
             swipeTracker = SwipeTracker(slots: slots)
             swipeTracker?.ringCenter = center
-            swipeTracker?.begin(at: point, initialSlot: nil)
+            swipeTracker?.begin(at: point, timestamp: timestamp, initialSlot: nil)
             ringView.showCenterHoldGlow()
             startHoldTimer()
             return
@@ -92,7 +92,7 @@ class TouchRouter {
             ringView.highlightKey(at: nearest.index)
             swipeTracker = SwipeTracker(slots: slots)
             swipeTracker?.ringCenter = center
-            swipeTracker?.begin(at: point, initialSlot: nearest)
+            swipeTracker?.begin(at: point, timestamp: timestamp, initialSlot: nearest)
             ringView.swipeTrail.beginTrail(at: point)
             return
         }
@@ -100,12 +100,12 @@ class TouchRouter {
         // 4. Anywhere else → start as swipe
         swipeTracker = SwipeTracker(slots: slots)
         swipeTracker?.ringCenter = center
-        swipeTracker?.begin(at: point, initialSlot: nil)
+        swipeTracker?.begin(at: point, timestamp: timestamp, initialSlot: nil)
         ringView.swipeTrail.beginTrail(at: point)
         mode = .ringSwipe
     }
 
-    func touchMoved(_ point: CGPoint) {
+    func touchMoved(_ point: CGPoint, timestamp: TimeInterval) {
         guard let ringView = ringView else { return }
 
         switch mode {
@@ -124,7 +124,7 @@ class TouchRouter {
                     // Diagonal/vertical → ring swipe for word input
                     mode = .ringSwipe
                     ringView.swipeTrail.beginTrail(at: startPoint)
-                    swipeTracker?.addSample(point)
+                    swipeTracker?.addSample(point, timestamp: timestamp)
                     ringView.swipeTrail.addPoint(point)
                 }
             }
@@ -140,7 +140,7 @@ class TouchRouter {
                 mode = .ringSwipe
                 ringView.unhighlightAllKeys()
             }
-            swipeTracker?.addSample(point)
+            swipeTracker?.addSample(point, timestamp: timestamp)
             ringView.swipeTrail.addPoint(point)
             ringView.unhighlightAllKeys()
             if let current = swipeTracker?.currentSlot {
@@ -148,7 +148,7 @@ class TouchRouter {
             }
 
         case .ringSwipe:
-            swipeTracker?.addSample(point)
+            swipeTracker?.addSample(point, timestamp: timestamp)
             ringView.swipeTrail.addPoint(point)
             ringView.unhighlightAllKeys()
             if let current = swipeTracker?.currentSlot {
@@ -268,9 +268,9 @@ class TouchRouter {
     private func finalizeSwipe() {
         guard let ringView = ringView,
               let tracker = swipeTracker else { return }
-        let visited = tracker.finalize()
-        if !visited.isEmpty {
-            ringView.delegate?.ringView(ringView, didSwipeWord: visited)
+        let keys = tracker.finalize()
+        if !keys.isEmpty {
+            ringView.delegate?.ringView(ringView, didSwipeWord: keys)
         }
     }
 

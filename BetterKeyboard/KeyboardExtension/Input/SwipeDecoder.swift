@@ -1,9 +1,9 @@
 import CoreGraphics
 
-/// Matches a sequence of visited KeySlots to a dictionary word.
-/// On a circular layout, swiping between keys inevitably passes through
-/// intermediate keys. The decoder uses subsequence matching: a word matches
-/// if its letters appear in order within the visited key sequence.
+/// Matches a sequence of velocity-weighted keys to a dictionary word.
+/// Uses alignment scoring: word letters are greedily matched against the
+/// weighted key sequence, with penalties for missed letters, low-weight
+/// matches, and unmatched anchor keys.
 class SwipeDecoder {
 
     private let dictionary: WordDictionary
@@ -62,56 +62,74 @@ class SwipeDecoder {
         "well", "ill", "shell", "hell", "lets", "hes", "shes",
     ]
 
+    // MARK: - Scoring constants
+
+    /// Letter exists in key sequence but couldn't match in order (plausible miss)
+    private let nearPathMissPenalty: CGFloat = 12.0
+    /// Letter doesn't appear in key sequence at ALL (phantom — never near the path)
+    private let absentMissPenalty: CGFloat = 20.0
+    private let weightMismatchScale: CGFloat = 2.0
+    private let unmatchedAnchorPenalty: CGFloat = 6.0
+    private let coveragePenaltyScale: CGFloat = 15.0
+    private let lengthBonus: CGFloat = -3.5
+    private let anchorWeightThreshold: CGFloat = 0.5
+    /// Penalty applied when trying alternate (second-to-last anchor) as end letter
+    private let alternateEndPenalty: CGFloat = 5.0
+
     init(dictionary: WordDictionary) {
         self.dictionary = dictionary
     }
 
-    /// Max slots to trim from the end to handle overshoot (e.g. "up" → "upg")
-    private let maxTailTrim = 2
+    // MARK: - Main decode
 
-    func decode(visitedSlots: [KeySlot]) -> String? {
-        guard !visitedSlots.isEmpty else { return nil }
+    func decode(weightedKeys: [WeightedKey]) -> String? {
+        guard !weightedKeys.isEmpty else { return nil }
 
-        let visited = visitedSlots.map { $0.letter }
+        // Separate anchors (high-weight) from all keys
+        let anchors = weightedKeys.filter { $0.weight >= anchorWeightThreshold }
+        let anchorCount = anchors.count
+        let keyCount = weightedKeys.count
 
-        // 1. Exact match (unlikely on circular layout, but fast check)
-        let rawLetters = String(visited).lowercased()
-        if dictionary.contains(rawLetters) {
-            return rawLetters
-        }
+        guard let firstKey = weightedKeys.first else { return nil }
+        let firstLetter = firstKey.slot.letter
 
-        let firstLetter = visited.first!
+        // Primary last letter: last anchor (or last key if no anchors)
+        let primaryLastLetter = (anchors.last ?? weightedKeys.last!).slot.letter
+
+        // Alternate last letter for overshoot handling: second-to-last anchor
+        let alternateLastLetter: Character? = anchors.count >= 2
+            ? anchors[anchors.count - 2].slot.letter : nil
+
+        // Length range: flexible around anchor count
+        let minLen = max(2, anchorCount - 2)
+        let maxLen = max(keyCount, anchorCount + 3)
 
         var bestWord: String?
         var bestScore = CGFloat.infinity
         var bestContraction: String?
         var bestContractionScore = CGFloat.infinity
 
-        // Try the full visited sequence, then trimmed versions (drop 1-2 from end)
-        // to handle overshoot. Trimmed versions get a penalty per dropped slot.
-        let trimLimit = min(maxTailTrim, visited.count - 1)
+        // Try primary end letter, then alternate (with penalty)
+        let endLetters: [(Character, CGFloat)] = {
+            var ends = [(primaryLastLetter, CGFloat(0.0))]
+            if let alt = alternateLastLetter, alt != primaryLastLetter {
+                ends.append((alt, alternateEndPenalty))
+            }
+            return ends
+        }()
 
-        for trim in 0...trimLimit {
-            let trimmedVisited = Array(visited.prefix(visited.count - trim))
-            let trimmedSlots = Array(visitedSlots.prefix(visitedSlots.count - trim))
-            guard trimmedVisited.count >= 2 else { continue }
-
-            let lastLetter = trimmedVisited.last!
-            let trimPenalty = CGFloat(trim) * 6.0
-
-            // 2. Subsequence matching against dictionary
-            // Require longer words for longer swipes to prevent "do" beating "decides"
-            let minLength = trimmedVisited.count >= 6 ? 4 : (trimmedVisited.count >= 4 ? 3 : 2)
+        for (lastLetter, endPenalty) in endLetters {
             let candidates = dictionary.candidates(
                 startingWith: firstLetter,
                 endingWith: lastLetter,
-                lengthRange: minLength...trimmedVisited.count
+                lengthRange: minLen...maxLen
             )
 
             for word in candidates {
-                if let score = subsequenceScore(word: word, visited: trimmedVisited, slots: trimmedSlots) {
-                    let nounPenalty: CGFloat = WordDictionary.properNouns.contains(word) ? 8.0 : 0.0
-                    let total = score + trimPenalty + nounPenalty
+                let nounPenalty: CGFloat = WordDictionary.properNouns.contains(word) ? 8.0 : 0.0
+
+                if let score = alignmentScore(word: word, keys: weightedKeys) {
+                    let total = score + endPenalty + nounPenalty
                     if total < bestScore {
                         bestScore = total
                         bestWord = word
@@ -119,7 +137,7 @@ class SwipeDecoder {
                 }
             }
 
-            // 3. Check contractions
+            // Check contractions with this end letter
             for (stripped, contracted) in Self.contractions {
                 let strippedChars = Array(stripped.uppercased())
                 guard let firstChar = strippedChars.first,
@@ -127,9 +145,9 @@ class SwipeDecoder {
                       firstChar == firstLetter,
                       lastChar == lastLetter else { continue }
 
-                if let score = subsequenceScore(word: stripped, visited: trimmedVisited, slots: trimmedSlots) {
+                if let score = alignmentScore(word: stripped, keys: weightedKeys) {
                     let bonus: CGFloat = Self.ambiguousContractions.contains(stripped) ? 0 : -5.0
-                    let total = score + bonus + trimPenalty
+                    let total = score + bonus + endPenalty
                     if total < bestContractionScore {
                         bestContractionScore = total
                         bestContraction = contracted
@@ -143,66 +161,128 @@ class SwipeDecoder {
             return contraction
         }
 
-        // Return dictionary match or nil (no gibberish fallback)
         return bestWord
     }
 
-    /// Check if word's letters appear as a subsequence of visited keys.
-    /// Returns a score (lower = better) or nil if not a subsequence.
+    // MARK: - Alignment scoring
+
+    /// Score how well a word aligns with the weighted key sequence.
+    /// Lower = better. Returns nil if alignment is too poor.
     ///
-    /// Score factors:
-    /// - Tightness: fewer skipped keys between matched letters is better
-    /// - Coverage: matched letters should span most of the visited sequence
-    /// - Word length: longer words preferred (more intentional)
-    /// - Frequency: common words preferred (applied in caller)
-    private func subsequenceScore(word: String, visited: [Character],
-                                  slots: [KeySlot]) -> CGFloat? {
+    /// Algorithm:
+    /// 1. Collapse consecutive duplicate letters in the word
+    /// 2. Require first letter match
+    /// 3. Greedy forward alignment of collapsed letters to keys
+    /// 4. Require last letter match for words > 3 letters
+    /// 5. Reject if > half the letters are missed
+    private func alignmentScore(word: String, keys: [WeightedKey]) -> CGFloat? {
         let wordChars = Array(word.uppercased())
         guard wordChars.count >= 2 else { return nil }
 
-        // Collapse consecutive duplicate letters in the word for matching.
-        // "sloppy" → "slopy" so we only need one P in the visited sequence.
-        // We track which collapsed chars map to double letters for scoring.
+        // Collapse consecutive duplicates: "hello" → "helo"
         var collapsed: [Character] = []
         for ch in wordChars {
-            if collapsed.last != ch {
-                collapsed.append(ch)
-            }
+            if collapsed.last != ch { collapsed.append(ch) }
         }
 
-        // Find the subsequence match with minimal total gaps
-        var matchIndices: [Int] = []
+        // Require first letter match
+        guard collapsed.first == keys.first?.slot.letter else { return nil }
+
+        // Build set of all letters present anywhere in the key sequence
+        let allKeyLetters = Set(keys.map { $0.slot.letter })
+
+        // Greedy forward alignment: match each collapsed letter to earliest matching key.
+        // Track near-path misses (letter exists in keys but ordering blocked)
+        // vs absent misses (letter nowhere in key sequence — phantom letter).
+        var matchedKeyIndices: [Int] = []
+        var nearPathMisses = 0
+        var absentMisses = 0
         var searchFrom = 0
 
         for ch in collapsed {
             var found = false
-            for i in searchFrom..<visited.count {
-                if visited[i] == ch {
-                    matchIndices.append(i)
-                    searchFrom = i + 1
+            for k in searchFrom..<keys.count {
+                if keys[k].slot.letter == ch {
+                    matchedKeyIndices.append(k)
+                    searchFrom = k + 1
                     found = true
                     break
                 }
             }
-            if !found { return nil }  // Not a subsequence
+            if !found {
+                if allKeyLetters.contains(ch) {
+                    nearPathMisses += 1
+                } else {
+                    absentMisses += 1
+                }
+            }
         }
 
-        // Score: lower is better
+        let totalMisses = nearPathMisses + absentMisses
 
-        // 1. Gap penalty: total number of unmatched visited keys between matched ones
-        var totalGap = 0
-        for i in 1..<matchIndices.count {
-            totalGap += (matchIndices[i] - matchIndices[i - 1] - 1)
+        // Require last letter match for words > 3 letters
+        if collapsed.count > 3 {
+            let lastCollapsed = collapsed.last!
+            guard let lastMatched = matchedKeyIndices.last else { return nil }
+            if keys[lastMatched].slot.letter != lastCollapsed { return nil }
         }
 
-        // 2. Span ratio: the match should cover a good portion of the visited sequence
-        let span = matchIndices.last! - matchIndices.first! + 1
-        let spanRatio = CGFloat(span) / CGFloat(visited.count)
-        let spanPenalty = (1.0 - spanRatio) * 30.0
+        // Reject if more than half the letters are missed
+        if totalMisses > collapsed.count / 2 { return nil }
 
-        // 3. Word length bonus: prefer longer words (more intentional)
-        let lengthBonus = -CGFloat(wordChars.count) * 3.5
+        // --- Score components (lower = better) ---
 
-        return CGFloat(totalGap) * 3.0 + spanPenalty + lengthBonus
+        // 1. Missed letter penalty (two-tier: phantom letters cost much more)
+        let missed = CGFloat(nearPathMisses) * nearPathMissPenalty
+                   + CGFloat(absentMisses) * absentMissPenalty
+
+        // 2. Weight alignment: prefer matching high-weight keys
+        var weightCost: CGFloat = 0
+        for idx in matchedKeyIndices {
+            weightCost += (1.0 - keys[idx].weight)
+        }
+        weightCost *= weightMismatchScale
+
+        // 3. Unmatched anchor penalty: high-weight keys not used by the word
+        let matchedSet = Set(matchedKeyIndices)
+        var anchorCost: CGFloat = 0
+        for (i, key) in keys.enumerated() {
+            if key.weight >= anchorWeightThreshold && !matchedSet.contains(i) {
+                anchorCost += key.weight * unmatchedAnchorPenalty
+            }
+        }
+
+        // 4. Coverage: match should span the key sequence
+        let coverageCost: CGFloat
+        if matchedKeyIndices.count >= 2 {
+            let span = matchedKeyIndices.last! - matchedKeyIndices.first! + 1
+            let spanRatio = CGFloat(span) / CGFloat(keys.count)
+            coverageCost = (1.0 - spanRatio) * coveragePenaltyScale
+        } else {
+            coverageCost = coveragePenaltyScale
+        }
+
+        // 5. Length bonus: prefer longer words
+        let lenBonus = CGFloat(wordChars.count) * lengthBonus
+
+        // 6. Frequency: prefer common words
+        let rank = dictionary.frequencyRank(of: word)
+        let freqCost = min(CGFloat(rank) * 0.03, 10.0)
+
+        // 7. Unsupported double-letter penalty: if the word has consecutive
+        //    duplicate letters (e.g. "off") but the key sequence doesn't have
+        //    that letter appearing twice, the swipe didn't intend the double.
+        var unsupportedDoubles = 0
+        var checkedLetters = Set<Character>()
+        for i in 1..<wordChars.count {
+            if wordChars[i] == wordChars[i - 1] && !checkedLetters.contains(wordChars[i]) {
+                checkedLetters.insert(wordChars[i])
+                let keyInstances = keys.filter { $0.slot.letter == wordChars[i] }.count
+                if keyInstances < 2 { unsupportedDoubles += 1 }
+            }
+        }
+        let doublePenalty = CGFloat(unsupportedDoubles) * 8.0
+
+        return missed + weightCost + anchorCost + coverageCost + lenBonus + freqCost + doublePenalty
     }
 }

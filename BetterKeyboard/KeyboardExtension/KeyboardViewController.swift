@@ -137,8 +137,8 @@ extension KeyboardViewController: RingViewDelegate {
         checkAutoShift()
     }
 
-    func ringView(_ ringView: RingView, didSwipeWord slots: [KeySlot]) {
-        guard let word = swipeDecoder.decode(visitedSlots: slots) else { return }
+    func ringView(_ ringView: RingView, didSwipeWord keys: [WeightedKey]) {
+        guard let word = swipeDecoder.decode(weightedKeys: keys) else { return }
         var text = word
         // Capitalize proper nouns (before shift, so "Claude" not "claude")
         if WordDictionary.properNouns.contains(text.lowercased()) && !text.contains("'") {

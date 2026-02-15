@@ -4,7 +4,7 @@ protocol RingViewDelegate: AnyObject {
     func ringView(_ ringView: RingView, didTapLetter letter: Character)
     func ringView(_ ringView: RingView, didTapSpace: Void)
     func ringView(_ ringView: RingView, didTapBackspace: Void)
-    func ringView(_ ringView: RingView, didSwipeWord slots: [KeySlot])
+    func ringView(_ ringView: RingView, didSwipeWord keys: [WeightedKey])
     func ringView(_ ringView: RingView, didTapShift: Void)
     func ringView(_ ringView: RingView, didTapReturn: Void)
     func ringView(_ ringView: RingView, didDeleteWord: Void)
@@ -465,12 +465,12 @@ class RingView: UIView {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
         if touch.view is UIButton { return }
-        touchRouter.touchBegan(touch.location(in: self))
+        touchRouter.touchBegan(touch.location(in: self), timestamp: touch.timestamp)
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
-        touchRouter.touchMoved(touch.location(in: self))
+        touchRouter.touchMoved(touch.location(in: self), timestamp: touch.timestamp)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {

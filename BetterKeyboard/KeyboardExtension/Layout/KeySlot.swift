@@ -20,3 +20,12 @@ struct KeySlot {
 
     var letterString: String { String(letter) }
 }
+
+/// A key with a confidence weight from velocity-based swipe analysis.
+/// High weight (near 1.0) = user decelerated here (intentional target).
+/// Low weight (near 0.0) = finger passed through at speed (incidental).
+struct WeightedKey {
+    let slot: KeySlot
+    let weight: CGFloat     // 0.0 (incidental) to 1.0 (deliberate target)
+    let sampleIndex: Int    // index into raw path (for dedup/debugging)
+}
