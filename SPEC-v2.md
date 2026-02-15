@@ -190,17 +190,23 @@ A `CAShapeLayer` that draws the finger path during a swipe:
 
 ### 4.9 Symbol/Number Mode
 
-- Toggle button switches between letter layout and symbol layout
-- Symbol layout: 10 digits on inner ring (36° spacing, fills gaps), 18 symbols on outer ring
+- Three-state toggle: Letters → Symbol Set 1 → Symbol Set 2
+- **Symbol Set 1:** 10 digits on inner ring (36° spacing, fills gaps), 18 common symbols on outer ring
+  - Upper (left→right): `( ) # @ & ? ! , .`
+  - Lower (left→right): `- + = / * : ; " '`
+- **Symbol Set 2:** Same 10 digits, 18 brackets/currency/special on outer ring
+  - Upper (left→right): `[ ] { } < > % ^ ~`
+  - Lower (left→right): `` _ ` | \ $ € £ ¥ ° ``
+- Toggle flow: shift button becomes "#+=", "123" in symbol modes; "ABC" always returns to letters
 - Same wedge geometry, just different characters
 
-### 4.10 Cursor Mode (stretch goal — implement last)
+### 4.10 Cursor Mode
 
-- Hold center zone for 1.5s → enter cursor mode
+- Hold center zone for 1s → enter cursor mode
 - Drag left/right → move cursor character by character
 - Visual feedback: glow builds during hold, pulse on activation, bright glow while active
 
-### 4.11 Center-to-Gap Directional Swipes (stretch goal)
+### 4.11 Center-to-Gap Directional Swipes
 
 - Swipe from center leftward (no keys visited) → delete word
 - Swipe from center rightward (no keys visited) → jump to end of text
@@ -268,35 +274,33 @@ If no dictionary word matches, return nil. Don't insert random text.
 
 ## 7. Button Layout
 
-### 7.1 Buttons Needed
+### 7.1 Buttons
 
-- **Shift** (⇧) — toggles shift state
-- **123/ABC** — toggles symbol mode
+- **Shift** (⇧) / **#+=** / **123** — context-dependent (letters: shift, symbols1: toggle to set 2, symbols2: toggle to set 1)
+- **123** / **ABC** — toggles between letters and symbol mode
 - **Return** (↵) — inserts newline
-- **Punctuation:** `.` `,` `'` `?` `!`
+- **Punctuation:** `.` `,` `'` `"` `?` `!`
+- **Theme toggle** — top-left corner, cycles through themes
+- **Dismiss** — top-right corner, dismisses keyboard
 
 ### 7.2 Placement
 
-Buttons go OUTSIDE the ring area. Two approaches that have worked:
+Arc layout: punctuation buttons along the left arc (150°-210°), function buttons along the right arc (345°-15°), at radius `outerWedgeRMax + 0.80`. Theme and dismiss buttons in top corners.
 
-**Option A — Column layout (proven in pre-switch state):**
-Two columns on the left side: control buttons (shift, 123, return) in a far-left column, punctuation buttons in a near-ring column. Both centered vertically. Uses SF Symbols for icons.
-
-**Option B — Arc layout (current):**
-Punctuation buttons arrayed around the left gap zone (150°-210°), function buttons around the right gap zone (345°-15°), at radius `outerWedgeRMax + 0.80`.
-
-Either is fine. The key constraint: buttons must be UIButton subviews (not CALayers) so they participate in UIKit hit testing.
+Buttons are UIButton subviews (not CALayers) so they participate in UIKit hit testing.
 
 ---
 
-## 8. Prediction Bar (not yet implemented in working state)
+## 8. Prediction Bar
 
-- 36pt tall bar across the top of the keyboard
+- 36pt tall bar across the top of the keyboard (PredictionBarView)
 - 3 UIButton subviews showing word suggestions
-- After space: show top-frequency words from dictionary
-- Mid-word: show prefix-matched completions
-- Tap a prediction → delete current partial word, insert predicted word + space
-- When present, shift ring center down by `predictionBarHeight / 2`
+- Three modes:
+  - **After space (suggestion):** show top-frequency words from dictionary
+  - **Mid-word (completion):** show prefix-matched completions
+  - **After swipe (alternatives):** show alternative swipe decode results; tap replaces last word
+- Tap a prediction → insert word (or replace, depending on mode)
+- Pinned above RingView via Auto Layout
 
 ---
 
@@ -339,38 +343,95 @@ All text operations go through `textDocumentProxy`:
 
 ---
 
-## 12. Implementation Order
+## 12. Completed (v2 rewrite)
 
-1. **Skeleton:** KeyboardViewController + empty RingView, verify it loads as keyboard extension
-2. **Layout geometry:** KeySlot, RingLayoutConfig, ring arc drawing, key cap rendering
-3. **Tap input:** Raw touch handling → nearest key detection → letter insertion
-4. **Swipe input:** SwipeTracker (key visit tracking) → SwipeDecoder (word matching) → word insertion
-5. **Gap zones:** Backspace tap/swipe, space tap, double-space-to-period
-6. **Buttons:** Shift, return, 123, punctuation (as UIButton subviews)
-7. **Polish:** Auto-shift, auto-correct "i", smart punctuation spacing, swipe trail
-8. **Stretch:** Prediction bar, cursor mode, center directional swipes
+All core features from the original implementation plan are done:
+
+- [x] Skeleton, layout geometry, key cap rendering
+- [x] Tap input, swipe input, gap zones (backspace/space)
+- [x] Buttons (shift, 123/ABC, return, punctuation)
+- [x] Auto-shift, auto-correct "i", smart punctuation spacing
+- [x] Prediction bar (3 suggestions: prefix completions mid-word, frequency after space, swipe alternatives)
+- [x] Cursor mode (hold center 1s → drag to move cursor)
+- [x] Center directional swipes (center→left = delete word, center→right = jump to end)
+- [x] Symbol mode with two sets (common symbols + brackets/currency/special)
+- [x] Three themes (dark, light, midnight) with live cycling
+- [x] `"` on punctuation button bar
 
 ---
 
-## 13. What to Preserve vs. Rewrite
+## 13. Roadmap
 
-### Preserve exactly (copy from snapshot):
-- `RingLayoutConfig.swift` — proven geometry, optimizer output
-- `KeySlot.swift` — simple data model
-- `GeometryHelpers.swift` — math utilities
-- `SwipeTrailLayer.swift` — visual trail rendering
-- `KeyCapLayer.swift` — bracket key rendering
-- `WordDictionary.swift` — dictionary loading and indexing
-- `SwipeDecoder.swift` — word matching algorithm (fix duplicate "youre" key)
-- `words.txt` — dictionary file
-- `BetterKeyboardApp/` — container app (unchanged)
+### 13.1 Bug Fixes
 
-### Rewrite from scratch:
-- `RingView.swift` — the main view (touch handling, layer management, buttons)
-- `TouchRouter.swift` — touch classification and routing
-- `SwipeTracker.swift` — key visit tracking during swipes (can largely reuse, but review)
-- `KeyboardViewController.swift` — the controller (text insertion, shift state, autocorrect)
+**No leading space after quote/apostrophe:**
+When a standalone `'` or `"` is typed (not as part of a contraction), the next tap or swipe
+should not insert a leading space. Allows typing `"hello"` or `'quoted'` naturally.
+Affected code: `didSwipeWord` in KeyboardViewController inserts `" "` before a word when
+`lastChar` isn't whitespace — needs to also skip when lastChar is `'` or `"`.
 
-### Delete:
-- `ImmediateTouchGestureRecognizer.swift` — debugging artifact, not needed
-- `TapHandler.swift` — empty placeholder, never used
+**No leading space on first word in field:**
+Swiping the very first word inserts a spurious space before it.
+Same root cause — `didSwipeWord` checks `lastChar.isWhitespace` but doesn't handle
+empty/nil `documentContextBeforeInput` correctly for the space-before logic.
+
+### 13.2 Polish
+
+**Prediction bar styling:**
+- Match theme color palette (currently default system button look)
+- Smaller font, smaller buttons — prediction bar should be unobtrusive
+- Consider hiding theme/dismiss buttons behind a long-press or moving them elsewhere
+  to reclaim vertical space
+
+**Smoother comet trail:**
+Current trail is segment-by-segment with abrupt clearing. Target behavior:
+- Each pixel of the trail fades out individually, exactly 1s after it was drawn
+- Creates a smooth "comet tail" effect where the trail appears to erase itself
+  at the same speed it was drawn
+- Likely needs a time-stamped point buffer and a CADisplayLink-driven fade,
+  rather than the current single-path approach in SwipeTrailLayer
+
+**Cursor mode improvements:**
+- Current implementation works but feels imprecise (TBD on specifics)
+- Possible improvements: visual cursor position indicator, variable speed based on
+  drag distance from center, haptic ticks per character moved
+
+### 13.3 Features
+
+**Profanity / forbidden words:**
+- Add swear words and other commonly-filtered words to the dictionary
+- Gated behind a toggle in settings (default OFF for App Store compliance)
+- Separate word list file (e.g., `words-profanity.txt`) loaded conditionally
+
+**Settings menu:**
+- Theme customizer: let users recolor existing themes (accent color, background, key color)
+- Liquid Glass theme: translucent blur-backed keys matching iOS 26 design language
+  (UIVisualEffectView / CABackdropLayer underneath the ring)
+- Profanity dictionary toggle (see above)
+- Stored via UserDefaults in shared App Group container
+
+**Learning dictionary:**
+- Track words the user types through the keyboard, boost their frequency ranking
+- Store word frequency counts in UserDefaults (shared App Group)
+- On startup, merge learned frequencies with the base dictionary
+- iOS sandbox prevents scraping Messages or other app history — can only learn
+  from words typed through this keyboard
+- Privacy-first: all data stays on-device, no network calls
+
+**Alternative keyboard layouts:**
+- Add traditional grid-based layouts as an option alongside the ring:
+  QWERTY, Dvorak, Workman, and a custom "Coyote" layout
+- Coyote layout concept: optimized for two-thumb phone typing with most-used keys
+  centered on natural thumb positions (roughly where S-D and J-K sit on QWERTY)
+  — may end up resembling Workman, needs analysis
+- Requires a separate grid rendering path (new UIView subclass or RingView mode)
+- Layout switching via settings or long-press on mode button
+- Swipe typing should work on grid layouts too (same SwipeDecoder, different geometry)
+
+### 13.4 App Store
+
+- [ ] App icon design
+- [ ] Privacy policy (required — keyboard has Full Access capability even if unused)
+- [ ] App Store screenshots and description
+- [ ] Review guideline compliance check (keyboard extension rules)
+- [ ] TestFlight beta round

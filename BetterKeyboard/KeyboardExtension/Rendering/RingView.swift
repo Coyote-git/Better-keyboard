@@ -12,6 +12,7 @@ protocol RingViewDelegate: AnyObject {
     func ringView(_ ringView: RingView, didMoveCursor offset: Int)
     func ringView(_ ringView: RingView, didJumpToEnd: Void)
     func ringView(_ ringView: RingView, didTapDismiss: Void)
+    func ringView(_ ringView: RingView, didChangeTheme: Void)
 }
 
 class RingView: UIView {
@@ -20,10 +21,17 @@ class RingView: UIView {
 
     // MARK: - Layout state
 
+    enum InputMode {
+        case letters
+        case symbols1
+        case symbols2
+    }
+
     private(set) var slots: [KeySlot] = []
     private var letterSlots: [KeySlot] = []
     private var symbolSlots: [KeySlot] = []
-    private(set) var isSymbolMode = false
+    private var symbolSlots2: [KeySlot] = []
+    private(set) var inputMode: InputMode = .letters
     private var center_: CGPoint = .zero
     private(set) var currentScale: CGFloat = 1.0
 
@@ -78,7 +86,14 @@ class RingView: UIView {
         symbolSlots = RingLayoutConfig.makeSymbolSlots()
         RingLayoutConfig.applyScreenPositions(slots: &symbolSlots, center: center_, scale: currentScale)
 
-        slots = isSymbolMode ? symbolSlots : letterSlots
+        symbolSlots2 = RingLayoutConfig.makeSymbolSlots2()
+        RingLayoutConfig.applyScreenPositions(slots: &symbolSlots2, center: center_, scale: currentScale)
+
+        switch inputMode {
+        case .letters:  slots = letterSlots
+        case .symbols1: slots = symbolSlots
+        case .symbols2: slots = symbolSlots2
+        }
         rebuildLayers()
     }
 
@@ -105,6 +120,9 @@ class RingView: UIView {
 
         themeButton.tintColor = theme.buttonTextColor
         dismissButton.tintColor = theme.buttonTextColor
+
+        // Restore correct button labels/highlights after theme reset
+        updateFunctionButtons()
     }
 
     // MARK: - Shift
@@ -343,7 +361,7 @@ class RingView: UIView {
     private func setupButtons() {
         let theme = KeyboardTheme.current
 
-        let punctTitles = [".", ",", "'", "?", "!"]
+        let punctTitles = [".", ",", "'", "\"", "?", "!"]
         for (i, title) in punctTitles.enumerated() {
             let btn = UIButton(type: .system)
             btn.setTitle(title, for: .normal)
@@ -404,22 +422,30 @@ class RingView: UIView {
 
     private func layoutButtons() {
         let radius = RingLayoutConfig.buttonArcRadius * currentScale
-        let btnSize: CGFloat = 34.0
+        let funcBtnSize: CGFloat = 34.0
+        let punctBtnSize: CGFloat = 30.0
 
-        let punctAngles: [CGFloat] = [150, 165, 180, 195, 210]
+        // Punctuation: place at equal vertical spacing along the left arc.
+        // Fixed angular spacing looks uneven because buttons are axis-aligned
+        // (gaps shrink at arc edges where separation becomes diagonal).
+        // Equal vertical spacing gives consistent visual gaps.
+        let punctGap: CGFloat = 3.0
+        let verticalStep = punctBtnSize + punctGap
+        let halfCount = CGFloat(punctuationButtons.count - 1) / 2.0
         for (i, btn) in punctuationButtons.enumerated() {
-            let rad = -punctAngles[i] * .pi / 180.0
-            btn.frame = CGRect(x: center_.x + radius * cos(rad) - btnSize / 2,
-                               y: center_.y + radius * sin(rad) - btnSize / 2,
-                               width: btnSize, height: btnSize)
+            let yOffset = (CGFloat(i) - halfCount) * verticalStep
+            let x = center_.x - sqrt(max(0, radius * radius - yOffset * yOffset))
+            let y = center_.y + yOffset
+            btn.frame = CGRect(x: x - punctBtnSize / 2, y: y - punctBtnSize / 2,
+                               width: punctBtnSize, height: punctBtnSize)
         }
 
         let funcAngles: [CGFloat] = [15, 0, 345]
         for (i, btn) in functionButtons.enumerated() {
             let rad = -funcAngles[i] * .pi / 180.0
-            btn.frame = CGRect(x: center_.x + radius * cos(rad) - btnSize / 2,
-                               y: center_.y + radius * sin(rad) - btnSize / 2,
-                               width: btnSize, height: btnSize)
+            btn.frame = CGRect(x: center_.x + radius * cos(rad) - funcBtnSize / 2,
+                               y: center_.y + radius * sin(rad) - funcBtnSize / 2,
+                               width: funcBtnSize, height: funcBtnSize)
         }
 
         themeButton.frame = CGRect(x: 8, y: 4, width: 30, height: 30)
@@ -427,16 +453,25 @@ class RingView: UIView {
     }
 
     @objc private func punctuationTapped(_ sender: UIButton) {
-        let chars: [Character] = [".", ",", "'", "?", "!"]
+        let chars: [Character] = [".", ",", "'", "\"", "?", "!"]
         guard sender.tag < chars.count else { return }
         delegate?.ringView(self, didTapPunctuation: chars[sender.tag])
     }
 
     @objc private func functionTapped(_ sender: UIButton) {
         switch sender.tag {
-        case 0: delegate?.ringView(self, didTapShift: ())
-        case 1: toggleSymbolMode()
-        case 2: delegate?.ringView(self, didTapReturn: ())
+        case 0:
+            // In letter mode: shift. In symbol mode: toggle between sets.
+            if inputMode == .letters {
+                delegate?.ringView(self, didTapShift: ())
+            } else {
+                toggleSymbolSet()
+            }
+        case 1:
+            // Always toggles between letters ↔ symbols1
+            toggleSymbolMode()
+        case 2:
+            delegate?.ringView(self, didTapReturn: ())
         default: break
         }
     }
@@ -444,20 +479,80 @@ class RingView: UIView {
     @objc private func themeTapped() {
         KeyboardTheme.cycle()
         reapplyTheme()
+        delegate?.ringView(self, didChangeTheme: ())
     }
 
     @objc private func dismissTapped() {
         delegate?.ringView(self, didTapDismiss: ())
     }
 
+    /// Toggle between letters and symbols1. From either symbol set, returns to letters.
     private func toggleSymbolMode() {
-        let theme = KeyboardTheme.current
-        isSymbolMode.toggle()
-        slots = isSymbolMode ? symbolSlots : letterSlots
+        if inputMode == .letters {
+            inputMode = .symbols1
+            slots = symbolSlots
+        } else {
+            inputMode = .letters
+            slots = letterSlots
+        }
         rebuildLayers()
+        updateFunctionButtons()
+    }
+
+    /// Swap between symbol set 1 and 2 (called from button[0] in symbol mode).
+    private func toggleSymbolSet() {
+        if inputMode == .symbols1 {
+            inputMode = .symbols2
+            slots = symbolSlots2
+        } else {
+            inputMode = .symbols1
+            slots = symbolSlots
+        }
+        rebuildLayers()
+        updateFunctionButtons()
+    }
+
+    /// Update function button labels/icons based on current input mode.
+    private func updateFunctionButtons() {
+        let theme = KeyboardTheme.current
         guard functionButtons.count > 1 else { return }
-        functionButtons[1].backgroundColor = isSymbolMode
-            ? theme.glowColor.withAlphaComponent(0.3) : theme.buttonFillColor
+
+        let btn0 = functionButtons[0]
+        let btn1 = functionButtons[1]
+
+        switch inputMode {
+        case .letters:
+            // button[0] = shift icon, button[1] = "123"
+            let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+            btn0.setTitle(nil, for: .normal)
+            btn0.setImage(UIImage(systemName: "shift")?.withConfiguration(config), for: .normal)
+            btn0.tintColor = theme.buttonTextColor
+            btn0.backgroundColor = theme.buttonFillColor
+
+            btn1.setImage(nil, for: .normal)
+            btn1.setTitle("123", for: .normal)
+            btn1.backgroundColor = theme.buttonFillColor
+
+        case .symbols1:
+            // button[0] = "#+=", button[1] = "ABC"
+            btn0.setImage(nil, for: .normal)
+            btn0.setTitle("#+=", for: .normal)
+            btn0.backgroundColor = theme.buttonFillColor
+
+            btn1.setImage(nil, for: .normal)
+            btn1.setTitle("ABC", for: .normal)
+            btn1.backgroundColor = theme.glowColor.withAlphaComponent(0.3)
+
+        case .symbols2:
+            // button[0] = "123", button[1] = "ABC"
+            btn0.setImage(nil, for: .normal)
+            btn0.setTitle("123", for: .normal)
+            btn0.backgroundColor = theme.buttonFillColor
+
+            btn1.setImage(nil, for: .normal)
+            btn1.setTitle("ABC", for: .normal)
+            btn1.backgroundColor = theme.glowColor.withAlphaComponent(0.3)
+        }
     }
 
     // MARK: - Touch handling

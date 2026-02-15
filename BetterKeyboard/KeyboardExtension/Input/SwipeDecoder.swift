@@ -83,14 +83,20 @@ class SwipeDecoder {
     // MARK: - Main decode
 
     func decode(weightedKeys: [WeightedKey]) -> String? {
-        guard !weightedKeys.isEmpty else { return nil }
+        return decodeTopN(weightedKeys: weightedKeys, n: 1).first
+    }
+
+    /// Returns the top N decoded words, scored best to worst.
+    /// Used by prediction bar to show alternatives after a swipe.
+    func decodeTopN(weightedKeys: [WeightedKey], n: Int = 3) -> [String] {
+        guard !weightedKeys.isEmpty else { return [] }
 
         // Separate anchors (high-weight) from all keys
         let anchors = weightedKeys.filter { $0.weight >= anchorWeightThreshold }
         let anchorCount = anchors.count
         let keyCount = weightedKeys.count
 
-        guard let firstKey = weightedKeys.first else { return nil }
+        guard let firstKey = weightedKeys.first else { return [] }
         let firstLetter = firstKey.slot.letter
 
         // Primary last letter: last anchor (or last key if no anchors)
@@ -104,10 +110,20 @@ class SwipeDecoder {
         let minLen = max(2, anchorCount - 2)
         let maxLen = max(keyCount, anchorCount + 3)
 
-        var bestWord: String?
-        var bestScore = CGFloat.infinity
-        var bestContraction: String?
-        var bestContractionScore = CGFloat.infinity
+        // Track top N results (word, score) sorted by score ascending
+        var topResults: [(word: String, score: CGFloat)] = []
+
+        func insertResult(_ word: String, _ score: CGFloat) {
+            // Skip duplicates (same word from different end-letter paths)
+            if topResults.contains(where: { $0.word == word }) { return }
+            if topResults.count < n {
+                topResults.append((word, score))
+                topResults.sort { $0.score < $1.score }
+            } else if score < topResults.last!.score {
+                topResults[topResults.count - 1] = (word, score)
+                topResults.sort { $0.score < $1.score }
+            }
+        }
 
         // Try primary end letter, then alternate (with penalty)
         let endLetters: [(Character, CGFloat)] = {
@@ -130,10 +146,7 @@ class SwipeDecoder {
 
                 if let score = alignmentScore(word: word, keys: weightedKeys) {
                     let total = score + endPenalty + nounPenalty
-                    if total < bestScore {
-                        bestScore = total
-                        bestWord = word
-                    }
+                    insertResult(word, total)
                 }
             }
 
@@ -148,20 +161,12 @@ class SwipeDecoder {
                 if let score = alignmentScore(word: stripped, keys: weightedKeys) {
                     let bonus: CGFloat = Self.ambiguousContractions.contains(stripped) ? 0 : -5.0
                     let total = score + bonus + endPenalty
-                    if total < bestContractionScore {
-                        bestContractionScore = total
-                        bestContraction = contracted
-                    }
+                    insertResult(contracted, total)
                 }
             }
         }
 
-        // Pick the best overall
-        if let contraction = bestContraction, bestContractionScore < bestScore {
-            return contraction
-        }
-
-        return bestWord
+        return topResults.map { $0.word }
     }
 
     // MARK: - Alignment scoring

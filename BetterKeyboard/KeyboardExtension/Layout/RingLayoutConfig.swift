@@ -101,9 +101,54 @@ enum RingLayoutConfig {
         }
 
         // Outer ring: 18 symbols at same angular positions as letter layout
-        let outerSymbols: [Character] = [".", ",", "!", "?", "'", "-", "@", "#",
-                                          "(", ")", "+", "=", "/", ":", ";", "\"",
-                                          "&", "*"]
+        // Upper (26°→154°, right-to-left visually): .  ,  !  ?  &  @  #  )  (
+        // Lower (206°→334°, left-to-right visually): -  +  =  /  *  :  ;  "  '
+        let outerSymbols: [Character] = [".", ",", "!", "?", "&", "@", "#", ")", "(",
+                                          "-", "+", "=", "/", "*", ":", ";", "\"", "'"]
+        let letterSlots = makeSlots().filter { $0.ring == .outer }
+        for (i, ls) in letterSlots.enumerated() {
+            var slot = KeySlot(letter: outerSymbols[i], ring: .outer,
+                               index: innerData.count + i,
+                               angleDeg: ls.angleDeg,
+                               normalizedPosition: ls.normalizedPosition,
+                               angularWidthDeg: ls.angularWidthDeg)
+            slots.append(slot)
+        }
+
+        return slots
+    }
+
+    // MARK: - Symbol/number slots set 2 (10 inner digits + 18 outer brackets/currency/special)
+
+    static func makeSymbolSlots2() -> [KeySlot] {
+        // Inner ring: same 10 digits as set 1
+        let innerData: [(Character, CGFloat, CGFloat, CGFloat)] = [
+            ("1",  36.0,  0.809,   0.5878),
+            ("2",  72.0,  0.309,   0.9511),
+            ("3", 108.0, -0.309,   0.9511),
+            ("4", 144.0, -0.809,   0.5878),
+            ("5", 180.0, -1.0,     0.0),
+            ("6", 216.0, -0.809,  -0.5878),
+            ("7", 252.0, -0.309,  -0.9511),
+            ("8", 288.0,  0.309,  -0.9511),
+            ("9", 324.0,  0.809,  -0.5878),
+            ("0",   0.0,  1.0,     0.0),
+        ]
+
+        var slots: [KeySlot] = []
+        for (i, (char, angle, x, y)) in innerData.enumerated() {
+            var slot = KeySlot(letter: char, ring: .inner, index: i,
+                               angleDeg: angle,
+                               normalizedPosition: CGPoint(x: x, y: y))
+            slot.angularWidthDeg = 36.0
+            slots.append(slot)
+        }
+
+        // Outer ring: brackets, math/special, currency
+        // Upper segment: [ ] { } < > % ^ ~
+        // Lower segment: _ ` | \ $ € £ ¥ °
+        let outerSymbols: [Character] = ["[", "]", "{", "}", "<", ">", "%", "^", "~",
+                                          "_", "`", "|", "\\", "$", "\u{20AC}", "\u{00A3}", "\u{00A5}", "\u{00B0}"]
         let letterSlots = makeSlots().filter { $0.ring == .outer }
         for (i, ls) in letterSlots.enumerated() {
             var slot = KeySlot(letter: outerSymbols[i], ring: .outer,

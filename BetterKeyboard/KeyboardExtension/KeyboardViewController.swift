@@ -3,11 +3,32 @@ import UIKit
 class KeyboardViewController: UIInputViewController {
 
     private var ringView: RingView!
+    private var predictionBar: PredictionBarView!
     private var wordDictionary: WordDictionary!
     private var swipeDecoder: SwipeDecoder!
     private var isShifted = false
     private var isCapsLocked = false
     private var lastShiftTapTime: TimeInterval = 0
+
+    // MARK: - Prediction state
+
+    /// What tapping a prediction button does.
+    private enum PredictionMode {
+        case alternatives   // after swipe — tap replaces last word
+        case completion     // mid-word — tap deletes partial, inserts full word
+        case suggestion     // after space — tap inserts word
+    }
+
+    private var predictionMode: PredictionMode = .suggestion
+    /// Stored alternatives from the last swipe decode (excludes the inserted word).
+    private var lastSwipeAlternatives: [String] = []
+
+    // MARK: - Quote/bracket tracking
+
+    /// Tracks unmatched opening quotes so we can distinguish open vs close.
+    /// Incremented on opening, decremented on closing. Reset when keyboard appears.
+    private var unmatchedDoubleQuotes = 0
+    private var unmatchedSingleQuotes = 0
 
     // MARK: - Lifecycle
 
@@ -17,15 +38,27 @@ class KeyboardViewController: UIInputViewController {
         wordDictionary = WordDictionary()
         swipeDecoder = SwipeDecoder(dictionary: wordDictionary)
 
+        // Prediction bar — thin strip at top
+        predictionBar = PredictionBarView(frame: .zero)
+        predictionBar.delegate = self
+        predictionBar.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(predictionBar)
+
+        // Ring view — fills remaining space below prediction bar
         ringView = RingView(frame: .zero)
         ringView.delegate = self
         ringView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(ringView)
 
         NSLayoutConstraint.activate([
+            predictionBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            predictionBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            predictionBar.topAnchor.constraint(equalTo: view.topAnchor),
+            predictionBar.heightAnchor.constraint(equalToConstant: PredictionBarView.barHeight),
+
             ringView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             ringView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            ringView.topAnchor.constraint(equalTo: view.topAnchor),
+            ringView.topAnchor.constraint(equalTo: predictionBar.bottomAnchor),
             ringView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
@@ -36,12 +69,78 @@ class KeyboardViewController: UIInputViewController {
 
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-        ringView.configure(viewSize: view.bounds.size)
+        ringView.configure(viewSize: ringView.bounds.size)
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        // Reset quote tracking — we can't reliably scan existing text for unmatched quotes
+        unmatchedDoubleQuotes = 0
+        unmatchedSingleQuotes = 0
         checkAutoShift()
+        updatePredictions()
+    }
+
+    // MARK: - Predictions
+
+    private func updatePredictions() {
+        switch predictionMode {
+        case .alternatives:
+            predictionBar.update(suggestions: lastSwipeAlternatives)
+
+        case .completion:
+            let partial = extractPartialWord()
+            if partial.count >= 1 {
+                let completions = wordDictionary.wordsWithPrefix(partial, limit: 3)
+                predictionBar.update(suggestions: completions)
+            } else {
+                // No partial word — fall back to suggestions
+                predictionMode = .suggestion
+                let words = wordDictionary.predictNextWords(limit: 3)
+                predictionBar.update(suggestions: words)
+            }
+
+        case .suggestion:
+            let words = wordDictionary.predictNextWords(limit: 3)
+            predictionBar.update(suggestions: words)
+        }
+    }
+
+    /// Extract the current partial word from text before cursor.
+    /// Returns "" if cursor is after whitespace or field is empty.
+    private func extractPartialWord() -> String {
+        guard let before = textDocumentProxy.documentContextBeforeInput,
+              !before.isEmpty,
+              let last = before.last, !last.isWhitespace else { return "" }
+        let components = before.split(whereSeparator: { $0.isWhitespace })
+        return components.last.map(String.init) ?? ""
+    }
+
+    // MARK: - Quote tracking helpers
+
+    /// Adjust unmatched quote counts when a character is about to be deleted.
+    /// Call BEFORE `deleteBackward()`. Reverses the open/close decision that was
+    /// made when the character was originally inserted.
+    private func adjustQuoteCountsForDeletion(_ before: String) {
+        guard let last = before.last else { return }
+        if last == "\"" {
+            if unmatchedDoubleQuotes > 0 {
+                unmatchedDoubleQuotes -= 1  // undoing an opening
+            } else {
+                unmatchedDoubleQuotes += 1  // undoing a closing → reopen
+            }
+        } else if last == "'" {
+            // Don't adjust if this was likely an apostrophe in a contraction
+            let charBefore = before.dropLast().last
+            let isApostrophe = charBefore?.isLetter == true && unmatchedSingleQuotes == 0
+            if !isApostrophe {
+                if unmatchedSingleQuotes > 0 {
+                    unmatchedSingleQuotes -= 1
+                } else {
+                    unmatchedSingleQuotes += 1
+                }
+            }
+        }
     }
 
     // MARK: - Auto-capitalize
@@ -99,6 +198,27 @@ class KeyboardViewController: UIInputViewController {
             ringView.updateShiftAppearance(isShifted: true, isCapsLocked: isCapsLocked)
         }
     }
+
+    /// Replace the last word (+ trailing space if present) with a new word + space.
+    private func replaceLastWord(with newWord: String) {
+        guard let before = textDocumentProxy.documentContextBeforeInput,
+              !before.isEmpty else { return }
+
+        let hasTrailingSpace = before.hasSuffix(" ")
+        let trimmed = hasTrailingSpace ? String(before.dropLast()) : before
+        let components = trimmed.split(whereSeparator: { $0.isWhitespace })
+        guard let lastWordSub = components.last else { return }
+
+        let deleteCount = lastWordSub.count + (hasTrailingSpace ? 1 : 0)
+        for _ in 0..<deleteCount { textDocumentProxy.deleteBackward() }
+
+        var text = newWord
+        // Apply proper noun capitalization
+        if WordDictionary.properNouns.contains(text.lowercased()) && !text.contains("'") {
+            text = text.prefix(1).uppercased() + text.dropFirst()
+        }
+        textDocumentProxy.insertText(text + " ")
+    }
 }
 
 // MARK: - RingViewDelegate
@@ -106,6 +226,14 @@ class KeyboardViewController: UIInputViewController {
 extension KeyboardViewController: RingViewDelegate {
 
     func ringView(_ ringView: RingView, didTapLetter letter: Character) {
+        // Route symbols/punctuation through the punctuation handler so they get
+        // consistent smart spacing, apostrophe toggle, etc. regardless of
+        // whether they came from a button or the symbol ring.
+        if !letter.isLetter && !letter.isNumber {
+            self.ringView(ringView, didTapPunctuation: letter)
+            return
+        }
+
         var text = String(letter)
         if isShifted {
             text = text.uppercased()
@@ -118,6 +246,8 @@ extension KeyboardViewController: RingViewDelegate {
         }
         textDocumentProxy.insertText(text)
         checkAutoShift()
+        predictionMode = .completion
+        updatePredictions()
     }
 
     func ringView(_ ringView: RingView, didTapSpace: Void) {
@@ -130,15 +260,26 @@ extension KeyboardViewController: RingViewDelegate {
             autoCorrectLastWord()
         }
         checkAutoShift()
+        predictionMode = .suggestion
+        updatePredictions()
     }
 
     func ringView(_ ringView: RingView, didTapBackspace: Void) {
+        if let before = textDocumentProxy.documentContextBeforeInput {
+            adjustQuoteCountsForDeletion(before)
+        }
         textDocumentProxy.deleteBackward()
         checkAutoShift()
+        let partial = extractPartialWord()
+        predictionMode = partial.isEmpty ? .suggestion : .completion
+        updatePredictions()
     }
 
     func ringView(_ ringView: RingView, didSwipeWord keys: [WeightedKey]) {
-        guard let word = swipeDecoder.decode(weightedKeys: keys) else { return }
+        // Decode top 4 to get the best + 3 alternatives
+        let topResults = swipeDecoder.decodeTopN(weightedKeys: keys, n: 4)
+        guard let word = topResults.first else { return }
+
         var text = word
         // Capitalize proper nouns (before shift, so "Claude" not "claude")
         if WordDictionary.properNouns.contains(text.lowercased()) && !text.contains("'") {
@@ -154,10 +295,26 @@ extension KeyboardViewController: RingViewDelegate {
             }
         }
 
-        // Insert space before if needed, and autocorrect previous word
-        // (fixes "i" not capitalizing when followed by a swipe)
+        // Insert space before if needed. Skip space after:
+        // - whitespace (obviously)
+        // - opening brackets (always unambiguous)
+        // - opening quotes (determined by unmatched count > 0)
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        if !before.isEmpty && !before.hasSuffix(" ") {
+        let openingBrackets: Set<Character> = ["(", "[", "{"]
+        var needsSpace = false
+        if let lastChar = before.last, !lastChar.isWhitespace {
+            if openingBrackets.contains(lastChar) {
+                needsSpace = false
+            } else if lastChar == "\"" {
+                // Inside quotes (just opened) → skip space; outside (just closed) → need space
+                needsSpace = unmatchedDoubleQuotes == 0
+            } else if lastChar == "'" {
+                needsSpace = unmatchedSingleQuotes == 0
+            } else {
+                needsSpace = true
+            }
+        }
+        if needsSpace {
             textDocumentProxy.insertText(" ")
             autoCorrectLastWord()
         }
@@ -166,6 +323,11 @@ extension KeyboardViewController: RingViewDelegate {
         let suffix = afterInput.hasPrefix(" ") ? "" : " "
         textDocumentProxy.insertText(text + suffix)
         checkAutoShift()
+
+        // Store alternatives (skip the inserted word) for prediction bar
+        lastSwipeAlternatives = Array(topResults.dropFirst())
+        predictionMode = .alternatives
+        updatePredictions()
     }
 
     func ringView(_ ringView: RingView, didTapShift: Void) {
@@ -189,19 +351,42 @@ extension KeyboardViewController: RingViewDelegate {
     func ringView(_ ringView: RingView, didTapReturn: Void) {
         textDocumentProxy.insertText("\n")
         checkAutoShift()
+        predictionMode = .suggestion
+        updatePredictions()
     }
 
     func ringView(_ ringView: RingView, didDeleteWord: Void) {
+        // Delete trailing spaces
         while let before = textDocumentProxy.documentContextBeforeInput,
               before.hasSuffix(" ") {
             textDocumentProxy.deleteBackward()
         }
+
+        // Delete word characters, stopping at standalone quotes/brackets
+        // so "hello doesn't delete the opening quote
+        let brackets: Set<Character> = ["(", ")", "[", "]", "{", "}"]
         while let before = textDocumentProxy.documentContextBeforeInput,
               !before.isEmpty,
               !before.hasSuffix(" ") {
+            guard let last = before.last else { break }
+
+            // Brackets are always word boundaries — stop
+            if brackets.contains(last) { break }
+
+            // Quotes are boundaries if standalone (preceded by whitespace/nothing),
+            // but mid-word apostrophes (preceded by a letter) should be deleted
+            if last == "\"" || last == "'" {
+                let charBefore = before.dropLast().last
+                if charBefore == nil || !charBefore!.isLetter { break }
+            }
+
+            adjustQuoteCountsForDeletion(before)
             textDocumentProxy.deleteBackward()
         }
+
         checkAutoShift()
+        predictionMode = .suggestion
+        updatePredictions()
     }
 
     func ringView(_ ringView: RingView, didTapPunctuation character: Character) {
@@ -211,11 +396,45 @@ extension KeyboardViewController: RingViewDelegate {
         }
 
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        if ".?!,".contains(character) && before.hasSuffix(" ") && !before.isEmpty {
-            textDocumentProxy.deleteBackward()
+        let hasTrailing = before.hasSuffix(" ") && !before.isEmpty
+
+        if character == "\"" {
+            if unmatchedDoubleQuotes > 0 {
+                // Closing quote — eat trailing space so it hugs the word
+                if hasTrailing { textDocumentProxy.deleteBackward() }
+                unmatchedDoubleQuotes -= 1
+            } else {
+                // Opening quote — leave any space, it's separation from previous word
+                unmatchedDoubleQuotes += 1
+            }
+        } else if character == "'" {
+            // Apostrophe toggle already failed, so this is a literal '
+            // Distinguish apostrophe (mid-word) from quote (standalone)
+            let lastChar = before.last ?? " "
+            if !lastChar.isWhitespace && unmatchedSingleQuotes == 0 {
+                // After a letter with no unmatched quotes → apostrophe, not a quote
+                // Eat trailing space so it hugs the word (e.g., possessive)
+                if hasTrailing { textDocumentProxy.deleteBackward() }
+            } else if unmatchedSingleQuotes > 0 {
+                // Closing quote
+                if hasTrailing { textDocumentProxy.deleteBackward() }
+                unmatchedSingleQuotes -= 1
+            } else {
+                // Opening quote
+                unmatchedSingleQuotes += 1
+            }
+        } else {
+            // Regular punctuation — eat trailing space for chars that hug the previous word
+            let eatSpaceChars: Set<Character> = [".", "?", "!", ",", ")", "]", "}"]
+            if eatSpaceChars.contains(character) && hasTrailing {
+                textDocumentProxy.deleteBackward()
+            }
         }
+
         textDocumentProxy.insertText(String(character))
         checkAutoShift()
+        predictionMode = .suggestion
+        updatePredictions()
     }
 
     /// If the word immediately before the cursor has an apostrophe'd alternative,
@@ -261,5 +480,61 @@ extension KeyboardViewController: RingViewDelegate {
             textDocumentProxy.adjustTextPosition(byCharacterOffset: after.count)
         }
         checkAutoShift()
+    }
+
+    func ringView(_ ringView: RingView, didChangeTheme: Void) {
+        predictionBar.reapplyTheme()
+    }
+}
+
+// MARK: - PredictionBarDelegate
+
+extension KeyboardViewController: PredictionBarDelegate {
+
+    func predictionBar(_ bar: PredictionBarView, didSelect word: String) {
+        switch predictionMode {
+        case .alternatives:
+            // Replace last swiped word with the selected alternative
+            replaceLastWord(with: word)
+
+        case .completion:
+            // Delete partial word, insert full word + space
+            let partial = extractPartialWord()
+            for _ in 0..<partial.count { textDocumentProxy.deleteBackward() }
+
+            var text = word
+            if WordDictionary.properNouns.contains(text.lowercased()) && !text.contains("'") {
+                text = text.prefix(1).uppercased() + text.dropFirst()
+            }
+            if isShifted && !isCapsLocked {
+                text = text.prefix(1).uppercased() + text.dropFirst()
+                isShifted = false
+                ringView.updateShiftAppearance(isShifted: false, isCapsLocked: false)
+            } else if isCapsLocked {
+                text = text.uppercased()
+            }
+            textDocumentProxy.insertText(text + " ")
+
+        case .suggestion:
+            // Insert the word + space
+            var text = word
+            if WordDictionary.properNouns.contains(text.lowercased()) && !text.contains("'") {
+                text = text.prefix(1).uppercased() + text.dropFirst()
+            }
+            if isShifted && !isCapsLocked {
+                text = text.prefix(1).uppercased() + text.dropFirst()
+                isShifted = false
+                ringView.updateShiftAppearance(isShifted: false, isCapsLocked: false)
+            } else if isCapsLocked {
+                text = text.uppercased()
+            }
+            textDocumentProxy.insertText(text + " ")
+        }
+
+        checkAutoShift()
+        // After any prediction tap, switch to suggestion mode
+        lastSwipeAlternatives = []
+        predictionMode = .suggestion
+        updatePredictions()
     }
 }
