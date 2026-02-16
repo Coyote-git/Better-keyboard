@@ -179,10 +179,23 @@ A `CAShapeLayer` that draws the finger path during a swipe:
 
 - Button tap → insert `\n`
 
-### 4.7 Punctuation
+### 4.7 Punctuation & Smart Spacing
 
-- Button taps for common punctuation: `.` `,` `'` `?` `!`
-- Smart punctuation: if text before cursor ends with space, delete the space before inserting `. ? ! ,`
+- Button taps for common punctuation: `.` `,` `'` `"` `?` `!`
+- Symbol ring taps for non-alphanumeric characters route through the same punctuation
+  handler for consistent behavior regardless of input source
+- Smart punctuation: if text before cursor ends with space, delete the space before
+  inserting `. ? ! , ) ] }`
+- **Quote/bracket tracking:** unmatched `"` and `'` counts distinguish opening vs closing:
+  - Opening quote/bracket: leave preceding space, skip space before next swiped word
+  - Closing quote/bracket: eat trailing space so it hugs the word
+  - Apostrophe detection: `'` preceded by a letter with no unmatched quotes → apostrophe,
+    not a quote (contraction toggle takes priority when a match exists)
+  - Counts reverse correctly on backspace; word-delete tracks per character
+  - Counts reset on keyboard appearance (new field / reopen)
+- **Word-delete boundaries:** backswipe stops at standalone quotes and brackets instead of
+  deleting through them; mid-word apostrophes (preceded by a letter) are deleted as part
+  of the word
 
 ### 4.8 Auto-Corrections
 
@@ -357,25 +370,19 @@ All core features from the original implementation plan are done:
 - [x] Symbol mode with two sets (common symbols + brackets/currency/special)
 - [x] Three themes (dark, light, midnight) with live cycling
 - [x] `"` on punctuation button bar
+- [x] Smart quote/bracket tracking (open vs close counting, proper nesting)
+- [x] Unified punctuation routing (symbol ring taps get same smart spacing as buttons)
+- [x] No leading space after opening quote/bracket on swipe
+- [x] Closing quote/bracket eats trailing space
+- [x] Word-delete respects quote/bracket boundaries
+- [x] SwipeDecoder `decodeTopN` for prediction bar alternatives
+- [x] First word in field already handled correctly (no spurious leading space)
 
 ---
 
 ## 13. Roadmap
 
-### 13.1 Bug Fixes
-
-**No leading space after quote/apostrophe:**
-When a standalone `'` or `"` is typed (not as part of a contraction), the next tap or swipe
-should not insert a leading space. Allows typing `"hello"` or `'quoted'` naturally.
-Affected code: `didSwipeWord` in KeyboardViewController inserts `" "` before a word when
-`lastChar` isn't whitespace — needs to also skip when lastChar is `'` or `"`.
-
-**No leading space on first word in field:**
-Swiping the very first word inserts a spurious space before it.
-Same root cause — `didSwipeWord` checks `lastChar.isWhitespace` but doesn't handle
-empty/nil `documentContextBeforeInput` correctly for the space-before logic.
-
-### 13.2 Polish
+### 13.1 Polish
 
 **Prediction bar styling:**
 - Match theme color palette (currently default system button look)
@@ -396,7 +403,7 @@ Current trail is segment-by-segment with abrupt clearing. Target behavior:
 - Possible improvements: visual cursor position indicator, variable speed based on
   drag distance from center, haptic ticks per character moved
 
-### 13.3 Features
+### 13.2 Features
 
 **Profanity / forbidden words:**
 - Add swear words and other commonly-filtered words to the dictionary
@@ -428,7 +435,7 @@ Current trail is segment-by-segment with abrupt clearing. Target behavior:
 - Layout switching via settings or long-press on mode button
 - Swipe typing should work on grid layouts too (same SwipeDecoder, different geometry)
 
-### 13.4 App Store
+### 13.3 App Store
 
 - [ ] App icon design
 - [ ] Privacy policy (required — keyboard has Full Access capability even if unused)

@@ -3,7 +3,6 @@ import UIKit
 class KeyboardViewController: UIInputViewController {
 
     private var ringView: RingView!
-    private var predictionBar: PredictionBarView!
     private var wordDictionary: WordDictionary!
     private var swipeDecoder: SwipeDecoder!
     private var isShifted = false
@@ -38,27 +37,16 @@ class KeyboardViewController: UIInputViewController {
         wordDictionary = WordDictionary()
         swipeDecoder = SwipeDecoder(dictionary: wordDictionary)
 
-        // Prediction bar — thin strip at top
-        predictionBar = PredictionBarView(frame: .zero)
-        predictionBar.delegate = self
-        predictionBar.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(predictionBar)
-
-        // Ring view — fills remaining space below prediction bar
+        // Ring view — fills entire keyboard, predictions in top strip
         ringView = RingView(frame: .zero)
         ringView.delegate = self
         ringView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(ringView)
 
         NSLayoutConstraint.activate([
-            predictionBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            predictionBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            predictionBar.topAnchor.constraint(equalTo: view.topAnchor),
-            predictionBar.heightAnchor.constraint(equalToConstant: PredictionBarView.barHeight),
-
             ringView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             ringView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            ringView.topAnchor.constraint(equalTo: predictionBar.bottomAnchor),
+            ringView.topAnchor.constraint(equalTo: view.topAnchor),
             ringView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
@@ -86,23 +74,23 @@ class KeyboardViewController: UIInputViewController {
     private func updatePredictions() {
         switch predictionMode {
         case .alternatives:
-            predictionBar.update(suggestions: lastSwipeAlternatives)
+            ringView.updatePredictions( lastSwipeAlternatives)
 
         case .completion:
             let partial = extractPartialWord()
             if partial.count >= 1 {
                 let completions = wordDictionary.wordsWithPrefix(partial, limit: 3)
-                predictionBar.update(suggestions: completions)
+                ringView.updatePredictions( completions)
             } else {
                 // No partial word — fall back to suggestions
                 predictionMode = .suggestion
                 let words = wordDictionary.predictNextWords(limit: 3)
-                predictionBar.update(suggestions: words)
+                ringView.updatePredictions( words)
             }
 
         case .suggestion:
             let words = wordDictionary.predictNextWords(limit: 3)
-            predictionBar.update(suggestions: words)
+            ringView.updatePredictions( words)
         }
     }
 
@@ -483,22 +471,15 @@ extension KeyboardViewController: RingViewDelegate {
     }
 
     func ringView(_ ringView: RingView, didChangeTheme: Void) {
-        predictionBar.reapplyTheme()
+        // Theme is applied internally by RingView
     }
-}
 
-// MARK: - PredictionBarDelegate
-
-extension KeyboardViewController: PredictionBarDelegate {
-
-    func predictionBar(_ bar: PredictionBarView, didSelect word: String) {
+    func ringView(_ ringView: RingView, didSelectPrediction word: String) {
         switch predictionMode {
         case .alternatives:
-            // Replace last swiped word with the selected alternative
             replaceLastWord(with: word)
 
         case .completion:
-            // Delete partial word, insert full word + space
             let partial = extractPartialWord()
             for _ in 0..<partial.count { textDocumentProxy.deleteBackward() }
 
@@ -516,7 +497,6 @@ extension KeyboardViewController: PredictionBarDelegate {
             textDocumentProxy.insertText(text + " ")
 
         case .suggestion:
-            // Insert the word + space
             var text = word
             if WordDictionary.properNouns.contains(text.lowercased()) && !text.contains("'") {
                 text = text.prefix(1).uppercased() + text.dropFirst()
@@ -532,7 +512,6 @@ extension KeyboardViewController: PredictionBarDelegate {
         }
 
         checkAutoShift()
-        // After any prediction tap, switch to suggestion mode
         lastSwipeAlternatives = []
         predictionMode = .suggestion
         updatePredictions()

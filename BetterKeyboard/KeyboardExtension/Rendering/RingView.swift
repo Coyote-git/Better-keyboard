@@ -13,6 +13,7 @@ protocol RingViewDelegate: AnyObject {
     func ringView(_ ringView: RingView, didJumpToEnd: Void)
     func ringView(_ ringView: RingView, didTapDismiss: Void)
     func ringView(_ ringView: RingView, didChangeTheme: Void)
+    func ringView(_ ringView: RingView, didSelectPrediction word: String)
 }
 
 class RingView: UIView {
@@ -51,6 +52,9 @@ class RingView: UIView {
     private var functionButtons: [UIButton] = []
     private let themeButton = UIButton(type: .system)
     private let dismissButton = UIButton(type: .system)
+    private var predictionButtons: [UIButton] = []
+    private var predictionDividers: [UIView] = []
+    private var predictions: [String] = []
 
     // MARK: - Input
 
@@ -120,6 +124,10 @@ class RingView: UIView {
 
         themeButton.tintColor = theme.buttonTextColor
         dismissButton.tintColor = theme.buttonTextColor
+
+        for btn in predictionButtons {
+            btn.setTitleColor(theme.buttonTextColor, for: .normal)
+        }
 
         // Restore correct button labels/highlights after theme reset
         updateFunctionButtons()
@@ -418,6 +426,26 @@ class RingView: UIView {
         dismissButton.addTarget(self, action: #selector(dismissTapped), for: .touchUpInside)
         addSubview(dismissButton)
 
+        // Prediction buttons — sit between theme and dismiss in the top strip
+        for i in 0..<3 {
+            let btn = UIButton(type: .system)
+            btn.titleLabel?.font = .systemFont(ofSize: 12, weight: .medium)
+            btn.setTitleColor(theme.buttonTextColor, for: .normal)
+            btn.tag = i
+            btn.isHidden = true
+            btn.addTarget(self, action: #selector(predictionTapped(_:)), for: .touchUpInside)
+            addSubview(btn)
+            predictionButtons.append(btn)
+        }
+
+        // Hairline dividers between prediction buttons
+        for _ in 0..<2 {
+            let div = UIView()
+            div.backgroundColor = UIColor(white: 0.3, alpha: 0.5)
+            div.isHidden = true
+            addSubview(div)
+            predictionDividers.append(div)
+        }
     }
 
     private func layoutButtons() {
@@ -450,6 +478,27 @@ class RingView: UIView {
 
         themeButton.frame = CGRect(x: 8, y: 4, width: 30, height: 30)
         dismissButton.frame = CGRect(x: bounds.width - 38, y: 4, width: 30, height: 30)
+
+        // Prediction buttons fill the space between theme and dismiss buttons
+        let predLeft = themeButton.frame.maxX + 4
+        let predRight = dismissButton.frame.minX - 4
+        let predWidth = predRight - predLeft
+        let btnWidth = predWidth / 3.0
+        let predY: CGFloat = 4
+        let predH: CGFloat = 26
+
+        // Display order: [2nd, best, 3rd] — best in center for easy thumb reach
+        let displayOrder = [1, 0, 2]
+        for (displaySlot, btnIdx) in displayOrder.enumerated() {
+            let x = predLeft + CGFloat(displaySlot) * btnWidth
+            predictionButtons[btnIdx].frame = CGRect(x: x, y: predY, width: btnWidth, height: predH)
+        }
+
+        // Dividers between prediction slots
+        for (i, div) in predictionDividers.enumerated() {
+            let x = predLeft + CGFloat(i + 1) * btnWidth
+            div.frame = CGRect(x: x - 0.25, y: predY + 4, width: 0.5, height: predH - 8)
+        }
     }
 
     @objc private func punctuationTapped(_ sender: UIButton) {
@@ -484,6 +533,30 @@ class RingView: UIView {
 
     @objc private func dismissTapped() {
         delegate?.ringView(self, didTapDismiss: ())
+    }
+
+    @objc private func predictionTapped(_ sender: UIButton) {
+        guard sender.tag < predictions.count else { return }
+        delegate?.ringView(self, didSelectPrediction: predictions[sender.tag])
+    }
+
+    // MARK: - Predictions
+
+    /// Update prediction suggestions. Order: [best, 2nd, 3rd].
+    /// Displayed as [2nd, best, 3rd] — best in the center.
+    func updatePredictions(_ suggestions: [String]) {
+        predictions = suggestions
+        for (i, btn) in predictionButtons.enumerated() {
+            if i < suggestions.count {
+                btn.setTitle(suggestions[i], for: .normal)
+                btn.isHidden = false
+            } else {
+                btn.setTitle(nil, for: .normal)
+                btn.isHidden = true
+            }
+        }
+        predictionDividers[0].isHidden = suggestions.count < 2
+        predictionDividers[1].isHidden = suggestions.count < 3
     }
 
     /// Toggle between letters and symbols1. From either symbol set, returns to letters.

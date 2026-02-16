@@ -87,6 +87,7 @@ struct KeyboardTheme {
     let showKeyBrackets: Bool
 
     // Swipe trail
+    let trailEnabled: Bool
     let trailColor: UIColor
     let trailGlowRadius: CGFloat
     let trailGlowOpacity: Float
@@ -136,6 +137,7 @@ struct KeyboardTheme {
 
         showKeyBrackets: false,
 
+        trailEnabled: false,
         trailColor: UIColor(red: 0.83, green: 0.90, blue: 0.97, alpha: 1), // #D4E5F7
         trailGlowRadius: 6,
         trailGlowOpacity: 0.7,
@@ -186,6 +188,7 @@ struct KeyboardTheme {
 
         showKeyBrackets: true,
 
+        trailEnabled: true,
         trailColor: UIColor(red: 1.0, green: 0.42, blue: 0.07, alpha: 1), // #FF6A13
         trailGlowRadius: 10,
         trailGlowOpacity: 0.9,

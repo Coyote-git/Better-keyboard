@@ -279,7 +279,7 @@ class TouchRouter {
         cursorTimer?.invalidate()
         cursorTimer = nil
         ringView?.unhighlightAllKeys()
-        ringView?.swipeTrail.clearTrail()
+        ringView?.swipeTrail.endTrail()
         swipeTracker = nil
         mode = .none
     }
