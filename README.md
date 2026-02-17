@@ -16,12 +16,14 @@ Users cycle between all five layouts with a keyboard button. Last-used layout pe
 
 - **Swipe-to-type** with dictionary matching and word predictions
 - **Tap typing** on all layouts
-- **Smart punctuation** — auto-spacing, quote/bracket balancing
+- **Smart spacing** — words are auto-spaced after swipes; opening quotes/brackets suppress the leading space, closing quotes/brackets eat the trailing space
+- **Smart punctuation** — period, comma, and other punctuation auto-delete the preceding space; double-space inserts ". "
+- **Smart contractions** — ambiguous swipes (e.g., "dont") auto-insert the apostrophe ("don't"); tap-apostrophe toggles between contraction and plain word
 - **Auto-shift** after sentence-ending punctuation
-- **Auto-correct** (standalone "i" → "I", common contractions)
+- **Auto-correct** (standalone "i" → "I")
+- **Swipe gestures on special keys** — swipe left from backspace to erase a whole word; swipe right from space to jump cursor to end of text
 - **Symbol mode** — two sets of symbols/numbers
 - **Cursor mode** (ring layout) — hold center, drag to move cursor
-- **Three themes** — dark, light, midnight
 
 ## Project Structure
 
