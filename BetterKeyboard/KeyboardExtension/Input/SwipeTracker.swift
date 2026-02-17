@@ -8,7 +8,7 @@ class SwipeTracker {
     private let slots: [KeySlot]
     private(set) var currentSlot: KeySlot?
 
-    private let proximityThreshold: CGFloat = RingView.swipeProximityThreshold
+    private let proximityThreshold: CGFloat
 
     /// Center of the ring in screen coordinates (set by caller)
     var ringCenter: CGPoint = .zero
@@ -41,8 +41,9 @@ class SwipeTracker {
     private let loopWindowSize = 20        // ~333ms at 60Hz
     private let loopAngleThreshold: CGFloat = 300.0  // degrees of cumulative turn = circle
 
-    init(slots: [KeySlot]) {
+    init(slots: [KeySlot], proximityThreshold: CGFloat = 26.0) {
         self.slots = slots
+        self.proximityThreshold = proximityThreshold
     }
 
     func begin(at point: CGPoint, timestamp: TimeInterval, initialSlot: KeySlot?) {

@@ -1,24 +1,10 @@
 import UIKit
 
-protocol RingViewDelegate: AnyObject {
-    func ringView(_ ringView: RingView, didTapLetter letter: Character)
-    func ringView(_ ringView: RingView, didTapSpace: Void)
-    func ringView(_ ringView: RingView, didTapBackspace: Void)
-    func ringView(_ ringView: RingView, didSwipeWord keys: [WeightedKey])
-    func ringView(_ ringView: RingView, didTapShift: Void)
-    func ringView(_ ringView: RingView, didTapReturn: Void)
-    func ringView(_ ringView: RingView, didDeleteWord: Void)
-    func ringView(_ ringView: RingView, didTapPunctuation character: Character)
-    func ringView(_ ringView: RingView, didMoveCursor offset: Int)
-    func ringView(_ ringView: RingView, didJumpToEnd: Void)
-    func ringView(_ ringView: RingView, didTapDismiss: Void)
-    func ringView(_ ringView: RingView, didChangeTheme: Void)
-    func ringView(_ ringView: RingView, didSelectPrediction word: String)
-}
+class RingView: UIView, KeyboardLayoutView {
 
-class RingView: UIView {
+    weak var delegate: KeyboardLayoutDelegate?
 
-    weak var delegate: RingViewDelegate?
+    var preferredHeight: CGFloat { 290 }
 
     // MARK: - Layout state
 
@@ -50,8 +36,9 @@ class RingView: UIView {
 
     private var punctuationButtons: [UIButton] = []
     private var functionButtons: [UIButton] = []
-    private let themeButton = UIButton(type: .system)
+    private let layoutCycleButton = UIButton(type: .system)
     private let dismissButton = UIButton(type: .system)
+    private let layoutNameLabel = UILabel()
     private var predictionButtons: [UIButton] = []
     private var predictionDividers: [UIView] = []
     private var predictions: [String] = []
@@ -122,8 +109,9 @@ class RingView: UIView {
             }
         }
 
-        themeButton.tintColor = theme.buttonTextColor
+        layoutCycleButton.tintColor = theme.buttonTextColor
         dismissButton.tintColor = theme.buttonTextColor
+        layoutNameLabel.textColor = theme.buttonTextColor.withAlphaComponent(0.4)
 
         for btn in predictionButtons {
             btn.setTitleColor(theme.buttonTextColor, for: .normal)
@@ -413,11 +401,12 @@ class RingView: UIView {
             functionButtons.append(btn)
         }
 
-        // Theme toggle
-        themeButton.setImage(UIImage(systemName: "circle.lefthalf.filled"), for: .normal)
-        themeButton.tintColor = theme.buttonTextColor
-        themeButton.addTarget(self, action: #selector(themeTapped), for: .touchUpInside)
-        addSubview(themeButton)
+        // Layout cycle (switch between ring / grid layouts)
+        let cycleConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        layoutCycleButton.setImage(UIImage(systemName: "keyboard")?.withConfiguration(cycleConfig), for: .normal)
+        layoutCycleButton.tintColor = theme.buttonTextColor
+        layoutCycleButton.addTarget(self, action: #selector(layoutCycleTapped), for: .touchUpInside)
+        addSubview(layoutCycleButton)
 
         // Dismiss keyboard
         let dismissConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
@@ -426,7 +415,14 @@ class RingView: UIView {
         dismissButton.addTarget(self, action: #selector(dismissTapped), for: .touchUpInside)
         addSubview(dismissButton)
 
-        // Prediction buttons — sit between theme and dismiss in the top strip
+        // Layout name label (temporary — for distinguishing layouts during development)
+        layoutNameLabel.text = "ring"
+        layoutNameLabel.font = .systemFont(ofSize: 9, weight: .medium)
+        layoutNameLabel.textColor = theme.buttonTextColor.withAlphaComponent(0.4)
+        layoutNameLabel.textAlignment = .center
+        addSubview(layoutNameLabel)
+
+        // Prediction buttons — sit between cycle and dismiss in the top strip
         for i in 0..<3 {
             let btn = UIButton(type: .system)
             btn.titleLabel?.font = .systemFont(ofSize: 12, weight: .medium)
@@ -476,15 +472,20 @@ class RingView: UIView {
                                width: funcBtnSize, height: funcBtnSize)
         }
 
-        themeButton.frame = CGRect(x: 8, y: 4, width: 30, height: 30)
-        dismissButton.frame = CGRect(x: bounds.width - 38, y: 4, width: 30, height: 30)
+        let predY: CGFloat = 4
+        layoutCycleButton.frame = CGRect(x: 8, y: predY, width: 30, height: 30)
+        dismissButton.frame = CGRect(x: bounds.width - 38, y: predY, width: 30, height: 30)
 
-        // Prediction buttons fill the space between theme and dismiss buttons
-        let predLeft = themeButton.frame.maxX + 4
-        let predRight = dismissButton.frame.minX - 4
+        // Tiny layout name label just left of dismiss
+        let labelW: CGFloat = 50
+        layoutNameLabel.frame = CGRect(x: dismissButton.frame.minX - labelW - 2, y: predY,
+                                        width: labelW, height: 30)
+
+        // Prediction buttons fill the space between cycle button and layout label
+        let predLeft = layoutCycleButton.frame.maxX + 4
+        let predRight = layoutNameLabel.frame.minX - 4
         let predWidth = predRight - predLeft
         let btnWidth = predWidth / 3.0
-        let predY: CGFloat = 4
         let predH: CGFloat = 26
 
         // Display order: [2nd, best, 3rd] — best in center for easy thumb reach
@@ -504,7 +505,7 @@ class RingView: UIView {
     @objc private func punctuationTapped(_ sender: UIButton) {
         let chars: [Character] = [".", ",", "'", "\"", "?", "!"]
         guard sender.tag < chars.count else { return }
-        delegate?.ringView(self, didTapPunctuation: chars[sender.tag])
+        delegate?.keyboardLayout(self, didTapPunctuation: chars[sender.tag])
     }
 
     @objc private func functionTapped(_ sender: UIButton) {
@@ -512,7 +513,7 @@ class RingView: UIView {
         case 0:
             // In letter mode: shift. In symbol mode: toggle between sets.
             if inputMode == .letters {
-                delegate?.ringView(self, didTapShift: ())
+                delegate?.keyboardLayout(self, didTapShift: ())
             } else {
                 toggleSymbolSet()
             }
@@ -520,24 +521,22 @@ class RingView: UIView {
             // Always toggles between letters ↔ symbols1
             toggleSymbolMode()
         case 2:
-            delegate?.ringView(self, didTapReturn: ())
+            delegate?.keyboardLayout(self, didTapReturn: ())
         default: break
         }
     }
 
-    @objc private func themeTapped() {
-        KeyboardTheme.cycle()
-        reapplyTheme()
-        delegate?.ringView(self, didChangeTheme: ())
+    @objc private func layoutCycleTapped() {
+        delegate?.keyboardLayout(self, didRequestLayoutCycle: ())
     }
 
     @objc private func dismissTapped() {
-        delegate?.ringView(self, didTapDismiss: ())
+        delegate?.keyboardLayout(self, didTapDismiss: ())
     }
 
     @objc private func predictionTapped(_ sender: UIButton) {
         guard sender.tag < predictions.count else { return }
-        delegate?.ringView(self, didSelectPrediction: predictions[sender.tag])
+        delegate?.keyboardLayout(self, didSelectPrediction: predictions[sender.tag])
     }
 
     // MARK: - Predictions

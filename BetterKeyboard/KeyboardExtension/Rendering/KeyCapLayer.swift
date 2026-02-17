@@ -53,6 +53,11 @@ class KeyCapLayer: CAShapeLayer {
             fontSize = theme.outerRingFontSize
             fontWeight = theme.outerRingFontWeight
             textColor = theme.outerRingTextColor
+        case .grid:
+            // Grid keys use GridKeyCapLayer, not this class — but handle gracefully
+            fontSize = theme.outerRingFontSize
+            fontWeight = .regular
+            textColor = theme.buttonTextColor
         }
 
         if theme.useMonospaceFont {
@@ -86,6 +91,8 @@ class KeyCapLayer: CAShapeLayer {
         case .outer:
             rMin = RingLayoutConfig.outerWedgeRMin * scale
             rMax = RingLayoutConfig.outerWedgeRMax * scale
+        case .grid:
+            return  // Grid keys don't use wedge rendering
         }
 
         if theme.showKeyBrackets {

@@ -3,6 +3,7 @@ import CoreGraphics
 enum Ring: String {
     case inner
     case outer
+    case grid
 }
 
 struct KeySlot {
@@ -17,6 +18,12 @@ struct KeySlot {
     var angularWidthDeg: CGFloat = 0
     /// Screen position (computed at layout time)
     var screenPosition: CGPoint = .zero
+
+    // Grid-specific fields (ignored by ring layout and swipe pipeline)
+    var gridRow: Int?
+    var gridCol: Int?
+    var keyWidth: CGFloat?
+    var keyHeight: CGFloat?
 
     var letterString: String { String(letter) }
 }

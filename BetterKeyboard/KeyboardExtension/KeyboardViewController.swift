@@ -2,12 +2,33 @@ import UIKit
 
 class KeyboardViewController: UIInputViewController {
 
-    private var ringView: RingView!
+    // MARK: - Layout management
+
+    enum LayoutType: String, CaseIterable {
+        case ring
+        case qwerty
+        case dvorak
+        case workman
+        case coyote
+
+        var next: LayoutType {
+            let all = LayoutType.allCases
+            let idx = all.firstIndex(of: self)!
+            return all[(idx + 1) % all.count]
+        }
+    }
+
+    private var currentLayout: LayoutType = .ring
+    private var activeView: (UIView & KeyboardLayoutView)!
+    private var heightConstraint: NSLayoutConstraint?
+
     private var wordDictionary: WordDictionary!
     private var swipeDecoder: SwipeDecoder!
     private var isShifted = false
     private var isCapsLocked = false
     private var lastShiftTapTime: TimeInterval = 0
+
+    private static let layoutDefaultsKey = "com.betterkeyboard.lastLayout"
 
     // MARK: - Prediction state
 
@@ -37,27 +58,23 @@ class KeyboardViewController: UIInputViewController {
         wordDictionary = WordDictionary()
         swipeDecoder = SwipeDecoder(dictionary: wordDictionary)
 
-        // Ring view — fills entire keyboard, predictions in top strip
-        ringView = RingView(frame: .zero)
-        ringView.delegate = self
-        ringView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(ringView)
+        // Restore saved layout preference
+        if let saved = UserDefaults.standard.string(forKey: Self.layoutDefaultsKey),
+           let layout = LayoutType(rawValue: saved) {
+            currentLayout = layout
+        }
 
-        NSLayoutConstraint.activate([
-            ringView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            ringView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            ringView.topAnchor.constraint(equalTo: view.topAnchor),
-            ringView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
-        let heightConstraint = view.heightAnchor.constraint(equalToConstant: 290)
-        heightConstraint.priority = .defaultHigh
-        heightConstraint.isActive = true
+        installLayout(currentLayout)
     }
 
-    override func viewWillLayoutSubviews() {
-        super.viewWillLayoutSubviews()
-        ringView.configure(viewSize: ringView.bounds.size)
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Must use viewDidLayoutSubviews (not viewWillLayout) because auto layout
+        // resolves subview bounds BETWEEN the two callbacks. In viewWillLayout,
+        // a newly-added view still has zero bounds.
+        let size = activeView.bounds.size
+        guard size.width > 0, size.height > 0 else { return }
+        activeView.configure(viewSize: size)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -69,28 +86,90 @@ class KeyboardViewController: UIInputViewController {
         updatePredictions()
     }
 
+    // MARK: - Layout cycling
+
+    /// Create and install a layout view, removing the old one if present.
+    private func installLayout(_ layout: LayoutType) {
+        // Remove old view
+        activeView?.removeFromSuperview()
+        heightConstraint?.isActive = false
+
+        // Create new view
+        let newView: UIView & KeyboardLayoutView
+        switch layout {
+        case .ring:
+            newView = RingView(frame: .zero)
+        case .qwerty, .dvorak, .workman, .coyote:
+            let gridName: GridLayoutName
+            switch layout {
+            case .qwerty:  gridName = .qwerty
+            case .dvorak:  gridName = .dvorak
+            case .workman: gridName = .workman
+            case .coyote:  gridName = .coyote
+            default: fatalError()
+            }
+            newView = GridKeyboardView(layout: gridName)
+        }
+
+        newView.delegate = self
+        newView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(newView)
+
+        NSLayoutConstraint.activate([
+            newView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            newView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            newView.topAnchor.constraint(equalTo: view.topAnchor),
+            newView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        let hc = view.heightAnchor.constraint(equalToConstant: newView.preferredHeight)
+        hc.priority = .defaultHigh
+        hc.isActive = true
+        heightConstraint = hc
+
+        activeView = newView
+        currentLayout = layout
+
+        // Persist choice
+        UserDefaults.standard.set(layout.rawValue, forKey: Self.layoutDefaultsKey)
+
+        // Restore shift state to new view
+        activeView.updateShiftAppearance(isShifted: isShifted, isCapsLocked: isCapsLocked)
+    }
+
+    private func cycleLayout() {
+        let next = currentLayout.next
+        installLayout(next)
+
+        // Trigger layout pass so the new view gets sized before configure()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+
+        updatePredictions()
+    }
+
     // MARK: - Predictions
 
     private func updatePredictions() {
         switch predictionMode {
         case .alternatives:
-            ringView.updatePredictions( lastSwipeAlternatives)
+            activeView.updatePredictions(lastSwipeAlternatives)
 
         case .completion:
             let partial = extractPartialWord()
             if partial.count >= 1 {
                 let completions = wordDictionary.wordsWithPrefix(partial, limit: 3)
-                ringView.updatePredictions( completions)
+                activeView.updatePredictions(completions)
             } else {
                 // No partial word — fall back to suggestions
                 predictionMode = .suggestion
                 let words = wordDictionary.predictNextWords(limit: 3)
-                ringView.updatePredictions( words)
+                activeView.updatePredictions(words)
             }
 
         case .suggestion:
             let words = wordDictionary.predictNextWords(limit: 3)
-            ringView.updatePredictions( words)
+            activeView.updatePredictions(words)
         }
     }
 
@@ -183,7 +262,7 @@ class KeyboardViewController: UIInputViewController {
             || before.hasSuffix("\n")
         if shouldShift {
             isShifted = true
-            ringView.updateShiftAppearance(isShifted: true, isCapsLocked: isCapsLocked)
+            activeView.updateShiftAppearance(isShifted: true, isCapsLocked: isCapsLocked)
         }
     }
 
@@ -209,16 +288,16 @@ class KeyboardViewController: UIInputViewController {
     }
 }
 
-// MARK: - RingViewDelegate
+// MARK: - KeyboardLayoutDelegate
 
-extension KeyboardViewController: RingViewDelegate {
+extension KeyboardViewController: KeyboardLayoutDelegate {
 
-    func ringView(_ ringView: RingView, didTapLetter letter: Character) {
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didTapLetter letter: Character) {
         // Route symbols/punctuation through the punctuation handler so they get
         // consistent smart spacing, apostrophe toggle, etc. regardless of
         // whether they came from a button or the symbol ring.
         if !letter.isLetter && !letter.isNumber {
-            self.ringView(ringView, didTapPunctuation: letter)
+            self.keyboardLayout(layout, didTapPunctuation: letter)
             return
         }
 
@@ -227,7 +306,7 @@ extension KeyboardViewController: RingViewDelegate {
             text = text.uppercased()
             if !isCapsLocked {
                 isShifted = false
-                ringView.updateShiftAppearance(isShifted: false, isCapsLocked: false)
+                activeView.updateShiftAppearance(isShifted: false, isCapsLocked: false)
             }
         } else {
             text = text.lowercased()
@@ -238,7 +317,7 @@ extension KeyboardViewController: RingViewDelegate {
         updatePredictions()
     }
 
-    func ringView(_ ringView: RingView, didTapSpace: Void) {
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didTapSpace: Void) {
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
         if before.hasSuffix(" ") && !before.hasSuffix(". ") && !before.isEmpty {
             textDocumentProxy.deleteBackward()
@@ -252,7 +331,7 @@ extension KeyboardViewController: RingViewDelegate {
         updatePredictions()
     }
 
-    func ringView(_ ringView: RingView, didTapBackspace: Void) {
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didTapBackspace: Void) {
         if let before = textDocumentProxy.documentContextBeforeInput {
             adjustQuoteCountsForDeletion(before)
         }
@@ -263,7 +342,7 @@ extension KeyboardViewController: RingViewDelegate {
         updatePredictions()
     }
 
-    func ringView(_ ringView: RingView, didSwipeWord keys: [WeightedKey]) {
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didSwipeWord keys: [WeightedKey]) {
         // Decode top 4 to get the best + 3 alternatives
         let topResults = swipeDecoder.decodeTopN(weightedKeys: keys, n: 4)
         guard let word = topResults.first else { return }
@@ -279,7 +358,7 @@ extension KeyboardViewController: RingViewDelegate {
             } else {
                 text = text.prefix(1).uppercased() + text.dropFirst()
                 isShifted = false
-                ringView.updateShiftAppearance(isShifted: false, isCapsLocked: false)
+                activeView.updateShiftAppearance(isShifted: false, isCapsLocked: false)
             }
         }
 
@@ -318,7 +397,7 @@ extension KeyboardViewController: RingViewDelegate {
         updatePredictions()
     }
 
-    func ringView(_ ringView: RingView, didTapShift: Void) {
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didTapShift: Void) {
         let now = CACurrentMediaTime()
 
         if isCapsLocked {
@@ -333,17 +412,17 @@ extension KeyboardViewController: RingViewDelegate {
         }
 
         lastShiftTapTime = now
-        ringView.updateShiftAppearance(isShifted: isShifted, isCapsLocked: isCapsLocked)
+        activeView.updateShiftAppearance(isShifted: isShifted, isCapsLocked: isCapsLocked)
     }
 
-    func ringView(_ ringView: RingView, didTapReturn: Void) {
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didTapReturn: Void) {
         textDocumentProxy.insertText("\n")
         checkAutoShift()
         predictionMode = .suggestion
         updatePredictions()
     }
 
-    func ringView(_ ringView: RingView, didDeleteWord: Void) {
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didDeleteWord: Void) {
         // Delete trailing spaces
         while let before = textDocumentProxy.documentContextBeforeInput,
               before.hasSuffix(" ") {
@@ -377,7 +456,7 @@ extension KeyboardViewController: RingViewDelegate {
         updatePredictions()
     }
 
-    func ringView(_ ringView: RingView, didTapPunctuation character: Character) {
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didTapPunctuation character: Character) {
         // Apostrophe toggle: replace last word with contracted version if one exists
         if character == "'" {
             if tryApostropheToggle() { return }
@@ -454,15 +533,15 @@ extension KeyboardViewController: RingViewDelegate {
         return true
     }
 
-    func ringView(_ ringView: RingView, didMoveCursor offset: Int) {
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didMoveCursor offset: Int) {
         textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
     }
 
-    func ringView(_ ringView: RingView, didTapDismiss: Void) {
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didTapDismiss: Void) {
         dismissKeyboard()
     }
 
-    func ringView(_ ringView: RingView, didJumpToEnd: Void) {
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didJumpToEnd: Void) {
         let after = textDocumentProxy.documentContextAfterInput ?? ""
         if !after.isEmpty {
             textDocumentProxy.adjustTextPosition(byCharacterOffset: after.count)
@@ -470,11 +549,7 @@ extension KeyboardViewController: RingViewDelegate {
         checkAutoShift()
     }
 
-    func ringView(_ ringView: RingView, didChangeTheme: Void) {
-        // Theme is applied internally by RingView
-    }
-
-    func ringView(_ ringView: RingView, didSelectPrediction word: String) {
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didSelectPrediction word: String) {
         switch predictionMode {
         case .alternatives:
             replaceLastWord(with: word)
@@ -490,7 +565,7 @@ extension KeyboardViewController: RingViewDelegate {
             if isShifted && !isCapsLocked {
                 text = text.prefix(1).uppercased() + text.dropFirst()
                 isShifted = false
-                ringView.updateShiftAppearance(isShifted: false, isCapsLocked: false)
+                activeView.updateShiftAppearance(isShifted: false, isCapsLocked: false)
             } else if isCapsLocked {
                 text = text.uppercased()
             }
@@ -504,7 +579,7 @@ extension KeyboardViewController: RingViewDelegate {
             if isShifted && !isCapsLocked {
                 text = text.prefix(1).uppercased() + text.dropFirst()
                 isShifted = false
-                ringView.updateShiftAppearance(isShifted: false, isCapsLocked: false)
+                activeView.updateShiftAppearance(isShifted: false, isCapsLocked: false)
             } else if isCapsLocked {
                 text = text.uppercased()
             }
@@ -515,5 +590,9 @@ extension KeyboardViewController: RingViewDelegate {
         lastSwipeAlternatives = []
         predictionMode = .suggestion
         updatePredictions()
+    }
+
+    func keyboardLayout(_ layout: any KeyboardLayoutView, didRequestLayoutCycle: Void) {
+        cycleLayout()
     }
 }

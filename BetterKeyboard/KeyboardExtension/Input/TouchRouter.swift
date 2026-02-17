@@ -172,9 +172,9 @@ class TouchRouter {
         case .centerSwipe:
             let dx = point.x - startPoint.x
             if dx < 0 {
-                ringView.delegate?.ringView(ringView, didDeleteWord: ())
+                ringView.delegate?.keyboardLayout(ringView, didDeleteWord: ())
             } else {
-                ringView.delegate?.ringView(ringView, didJumpToEnd: ())
+                ringView.delegate?.keyboardLayout(ringView, didJumpToEnd: ())
             }
 
         case .centerCursor:
@@ -182,7 +182,7 @@ class TouchRouter {
 
         case .keyTap(let slot):
             if GeometryHelpers.distance(startPoint, point) <= swipeThreshold {
-                ringView.delegate?.ringView(ringView, didTapLetter: slot.letter)
+                ringView.delegate?.keyboardLayout(ringView, didTapLetter: slot.letter)
             } else {
                 finalizeSwipe()
             }
@@ -193,13 +193,13 @@ class TouchRouter {
         case .backspace:
             let moved = GeometryHelpers.distance(startPoint, point)
             if moved > swipeThreshold && point.x < startPoint.x {
-                ringView.delegate?.ringView(ringView, didDeleteWord: ())
+                ringView.delegate?.keyboardLayout(ringView, didDeleteWord: ())
             } else if moved <= swipeThreshold {
-                ringView.delegate?.ringView(ringView, didTapBackspace: ())
+                ringView.delegate?.keyboardLayout(ringView, didTapBackspace: ())
             }
 
         case .spaceZone:
-            ringView.delegate?.ringView(ringView, didTapSpace: ())
+            ringView.delegate?.keyboardLayout(ringView, didTapSpace: ())
 
         case .none:
             break
@@ -259,7 +259,7 @@ class TouchRouter {
         let steps = Int(cursorAccumulator)
         if steps != 0 {
             cursorAccumulator -= CGFloat(steps)
-            ringView.delegate?.ringView(ringView, didMoveCursor: steps)
+            ringView.delegate?.keyboardLayout(ringView, didMoveCursor: steps)
         }
     }
 
@@ -270,7 +270,7 @@ class TouchRouter {
               let tracker = swipeTracker else { return }
         let keys = tracker.finalize()
         if !keys.isEmpty {
-            ringView.delegate?.ringView(ringView, didSwipeWord: keys)
+            ringView.delegate?.keyboardLayout(ringView, didSwipeWord: keys)
         }
     }
 

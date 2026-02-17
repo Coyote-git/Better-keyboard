@@ -107,7 +107,7 @@ enum RingLayoutConfig {
                                           "-", "+", "=", "/", "*", ":", ";", "\"", "'"]
         let letterSlots = makeSlots().filter { $0.ring == .outer }
         for (i, ls) in letterSlots.enumerated() {
-            var slot = KeySlot(letter: outerSymbols[i], ring: .outer,
+            let slot = KeySlot(letter: outerSymbols[i], ring: .outer,
                                index: innerData.count + i,
                                angleDeg: ls.angleDeg,
                                normalizedPosition: ls.normalizedPosition,
@@ -151,7 +151,7 @@ enum RingLayoutConfig {
                                           "_", "`", "|", "\\", "$", "\u{20AC}", "\u{00A3}", "\u{00A5}", "\u{00B0}"]
         let letterSlots = makeSlots().filter { $0.ring == .outer }
         for (i, ls) in letterSlots.enumerated() {
-            var slot = KeySlot(letter: outerSymbols[i], ring: .outer,
+            let slot = KeySlot(letter: outerSymbols[i], ring: .outer,
                                index: innerData.count + i,
                                angleDeg: ls.angleDeg,
                                normalizedPosition: ls.normalizedPosition,

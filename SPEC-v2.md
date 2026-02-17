@@ -1,6 +1,6 @@
 # Better Keyboard v2 — Implementation Specification
 
-**Purpose:** One-thumb swipe-typing keyboard for iOS, using a circular ring layout optimized via simulated annealing for bigram separation and ergonomic thumb reach.
+**Purpose:** One-thumb swipe-typing keyboard for iOS, supporting both a circular ring layout (optimized via simulated annealing for bigram separation) and traditional grid-based layouts (QWERTY, Dvorak, Workman, Coyote). Users cycle between layouts with a dedicated button.
 
 **Stack:** Swift / UIKit (iOS Keyboard Extension), Python (optimizer — already complete, don't touch)
 
@@ -21,16 +21,21 @@ BetterKeyboard/
     MainViewController.swift
     Assets.xcassets/
   KeyboardExtension/             (The actual keyboard)
-    KeyboardViewController.swift (UIInputViewController — text insertion, shift, autocorrect)
+    KeyboardViewController.swift (UIInputViewController — layout management, text insertion, shift, autocorrect)
     Layout/
-      KeySlot.swift              (Data model for one key position)
-      RingLayoutConfig.swift     (Hardcoded optimizer output + geometry constants)
+      KeySlot.swift              (Data model for one key position — supports both ring and grid)
+      KeyboardLayoutProtocol.swift (Shared protocols: KeyboardLayoutView + KeyboardLayoutDelegate)
+      RingLayoutConfig.swift     (Hardcoded optimizer output + ring geometry constants)
+      GridLayoutConfig.swift     (Grid layout definitions: QWERTY, Dvorak, Workman, Coyote)
     Rendering/
-      RingView.swift             (Main UIView — layers, buttons, touch routing)
-      KeyCapLayer.swift          (CAShapeLayer for one key — bracket outline + text)
+      RingView.swift             (Ring keyboard UIView — conforms to KeyboardLayoutView)
+      GridKeyboardView.swift     (Grid keyboard UIView — conforms to KeyboardLayoutView)
+      KeyCapLayer.swift          (CAShapeLayer for ring keys — bracket outline + text)
+      GridKeyCapLayer.swift      (CAShapeLayer for grid keys — rounded rect + text)
       SwipeTrailLayer.swift      (CAShapeLayer showing finger trail during swipe)
     Input/
-      TouchRouter.swift          (Classifies touches → tap/swipe/backspace/space/etc.)
+      TouchRouter.swift          (Ring touch classifier → tap/swipe/backspace/space/etc.)
+      GridTouchRouter.swift      (Grid touch classifier → tap/swipe on letter keys)
       SwipeTracker.swift         (Tracks which keys the finger passes during a swipe)
       SwipeDecoder.swift         (Matches visited key sequence → dictionary word)
     Dictionary/
@@ -287,20 +292,35 @@ If no dictionary word matches, return nil. Don't insert random text.
 
 ## 7. Button Layout
 
-### 7.1 Buttons
+### 7.1 Ring Layout Buttons
 
 - **Shift** (⇧) / **#+=** / **123** — context-dependent (letters: shift, symbols1: toggle to set 2, symbols2: toggle to set 1)
 - **123** / **ABC** — toggles between letters and symbol mode
 - **Return** (↵) — inserts newline
 - **Punctuation:** `.` `,` `'` `"` `?` `!`
-- **Theme toggle** — top-left corner, cycles through themes
+- **Layout cycle** (⌨) — top-left corner, cycles between all layouts
 - **Dismiss** — top-right corner, dismisses keyboard
 
-### 7.2 Placement
+### 7.2 Ring Placement
 
-Arc layout: punctuation buttons along the left arc (150°-210°), function buttons along the right arc (345°-15°), at radius `outerWedgeRMax + 0.80`. Theme and dismiss buttons in top corners.
+Arc layout: punctuation buttons along the left arc (150°-210°), function buttons along the right arc (345°-15°), at radius `outerWedgeRMax + 0.80`. Layout cycle and dismiss buttons in top corners.
 
 Buttons are UIButton subviews (not CALayers) so they participate in UIKit hit testing.
+
+### 7.3 Grid Layout Buttons
+
+Bottom row (ortholinear, below letter rows):
+```
+[123] [⌨] [,] [      space      ] [.] [↵]
+```
+
+Modifier row (flanking last letter row):
+- **Shift** (⇧) — left of last letter row
+- **Backspace** (⌫) — right of last letter row, sized to fill remaining space
+
+Top bar:
+- **Layout cycle** (⌨) — top-left, matching ring view position
+- Layout name label (small, for development reference)
 
 ---
 
@@ -319,11 +339,25 @@ Buttons are UIButton subviews (not CALayers) so they participate in UIKit hit te
 
 ## 9. Keyboard View Configuration
 
-- Height: 290pt (`.defaultHigh` priority constraint)
-- RingView fills the entire keyboard view (all edges pinned)
-- `viewWillLayoutSubviews` triggers ring layout recalculation
+### 9.1 Layout Architecture
+
+`KeyboardViewController` owns a single `activeView: (UIView & KeyboardLayoutView)` — either a `RingView` or `GridKeyboardView`. The `KeyboardLayoutView` protocol defines the common interface:
+- `configure(viewSize:)`, `updatePredictions(_:)`, `updateShiftAppearance(...)`, `reapplyTheme()`
+- `slots: [KeySlot]`, `swipeTrail: SwipeTrailLayer`, `preferredHeight: CGFloat`
+
+Layout switching:
+- `LayoutType` enum: `.ring`, `.qwerty`, `.dvorak`, `.workman`, `.coyote`
+- `cycleLayout()` removes old view, creates new one, pins via Auto Layout, restores state
+- Last-used layout persisted in `UserDefaults` (key: `"com.betterkeyboard.lastLayout"`)
+- `KeyboardLayoutDelegate` protocol replaces the old `RingViewDelegate` — all delegate methods are layout-agnostic
+
+### 9.2 View Lifecycle
+
+- Height: `preferredHeight` per layout (290pt ring, 260pt grid), set as `.defaultHigh` priority constraint
+- Active view fills the keyboard view (all edges pinned)
+- **`viewDidLayoutSubviews`** triggers layout recalculation (NOT `viewWillLayoutSubviews` — subview bounds are only valid after constraint resolution)
 - Rendering: entirely CAShapeLayer tree (no Auto Layout for keys, no UILabels on the ring)
-- All layer positions computed geometrically from center + scale
+- All layer positions computed geometrically from center + scale (ring) or from view width (grid)
 
 ---
 
@@ -377,12 +411,93 @@ All core features from the original implementation plan are done:
 - [x] Word-delete respects quote/bracket boundaries
 - [x] SwipeDecoder `decodeTopN` for prediction bar alternatives
 - [x] First word in field already handled correctly (no spurious leading space)
+- [x] Alternative keyboard layouts (QWERTY, Dvorak, Workman, Coyote) with layout cycling
+- [x] Protocol-based layout architecture (`KeyboardLayoutView` / `KeyboardLayoutDelegate`)
+- [x] Grid rendering with ortholinear key positioning (no row stagger, shorter rows centered)
+- [x] Swipe-to-type on grid layouts (same SwipeDecoder, 20pt proximity threshold)
+- [x] Grid symbol/number mode (two sets, matching ring symbol content)
+- [x] Layout preference persistence via UserDefaults
+- [x] Coyote vertical-cluster layout optimized for two-thumb phone typing
 
 ---
 
-## 13. Roadmap
+## 13. Grid Keyboard Architecture
 
-### 13.1 Polish
+### 13.1 Layout Definitions
+
+Four grid layouts, all ortholinear (no row stagger — columns align across rows):
+
+```
+QWERTY:  [Q][W][E][R][T][Y][U][I][O][P]
+         [A][S][D][F][G][H][J][K][L]
+         [Z][X][C][V][B][N][M]
+
+Dvorak:  [P][Y][F][G][C][R][L]
+         [A][O][E][U][I][D][H][T][N][S]
+         [Q][J][K][X][B][M][W][V][Z]
+
+Workman: [Q][D][R][W][B][J][F][U][P]
+         [A][S][H][T][G][Y][N][E][O][I]
+         [Z][X][M][C][V][K][L]
+
+Coyote:  [Q][Y][F][S][R][I][H][W][P][J]
+         [Z][G][U][T][A][N][E][M][B][X]
+         [V][D][L][C][O][K]
+```
+
+### 13.2 Coyote Layout Design
+
+Vertical-cluster layout optimized for two-thumb phone typing. Design principles:
+- Top-9 frequency letters (E,T,A,O,I,N,S,H,R) clustered in columns 3–6
+- Common bigrams become **vertical thumb flicks** (minimal horizontal travel):
+  - Col 3: S→T (ST)
+  - Col 4: R→A (RA)
+  - Col 5: I→N (IN)
+  - Col 6: H→E (HE)
+- TH and ER cross hands for natural alternation
+- 10/10/6 row structure gives perfect column alignment across all rows
+
+### 13.3 Grid Rendering
+
+- `GridKeyCapLayer` (CAShapeLayer): rounded rect background + centered horizontal text
+- Keys always display uppercase regardless of shift state
+- Key sizing: ~32×42pt keys, ~6pt spacing, computed to fill available width
+- Shorter rows centered within the widest row
+- Prediction bar: same 3-button strip as ring (34pt tall, top of keyboard)
+- Backspace sized to fill remaining space on the last row (varies per layout)
+
+### 13.4 Grid Touch Handling
+
+- `GridTouchRouter`: rectangular hit test with 4pt padding
+- Swipe detection uses SwipeTracker with 20pt proximity threshold (vs 26pt for ring)
+- Special keys (shift, backspace, space, return, symbols, layout cycle) are UIButtons,
+  not routed through the touch router
+- Backspace auto-repeat: 0.4s initial delay, 0.08s repeat interval
+
+### 13.5 Grid Symbol Mode
+
+Same 3-state toggle as ring: Letters → Symbol Set 1 → Symbol Set 2
+
+Symbol Set 1:
+```
+[1][2][3][4][5][6][7][8][9][0]
+[-][/][:][;][(][)][S][$][&][@]["]
+[.][,][?][!][']
+```
+
+Symbol Set 2:
+```
+[1][2][3][4][5][6][7][8][9][0]
+[ ][ ][{][}][#][%][^][*][+][=]
+[_][\][|][~][<][>][€][£][¥][•]
+[.][,][?][!][']
+```
+
+---
+
+## 14. Roadmap
+
+### 14.1 Polish
 
 **Prediction bar styling:**
 - Match theme color palette (currently default system button look)
@@ -403,7 +518,7 @@ Current trail is segment-by-segment with abrupt clearing. Target behavior:
 - Possible improvements: visual cursor position indicator, variable speed based on
   drag distance from center, haptic ticks per character moved
 
-### 13.2 Features
+### 14.2 Features
 
 **Profanity / forbidden words:**
 - Add swear words and other commonly-filtered words to the dictionary
@@ -425,17 +540,14 @@ Current trail is segment-by-segment with abrupt clearing. Target behavior:
   from words typed through this keyboard
 - Privacy-first: all data stays on-device, no network calls
 
-**Alternative keyboard layouts:**
-- Add traditional grid-based layouts as an option alongside the ring:
-  QWERTY, Dvorak, Workman, and a custom "Coyote" layout
-- Coyote layout concept: optimized for two-thumb phone typing with most-used keys
-  centered on natural thumb positions (roughly where S-D and J-K sit on QWERTY)
-  — may end up resembling Workman, needs analysis
-- Requires a separate grid rendering path (new UIView subclass or RingView mode)
-- Layout switching via settings or long-press on mode button
-- Swipe typing should work on grid layouts too (same SwipeDecoder, different geometry)
+**Grid layout refinements:**
+- Coyote layout can be further optimized with the Python optimizer adapted for grid
+  bigram distances (currently hand-designed based on frequency analysis)
+- Spacebar-hold cursor mode for grid layouts (similar to stock iOS keyboard)
+- Grid-specific swipe accuracy tuning (adjacent common-bigram keys cause more ambiguity
+  than on the ring where they're deliberately separated)
 
-### 13.3 App Store
+### 14.3 App Store
 
 - [ ] App icon design
 - [ ] Privacy policy (required — keyboard has Full Access capability even if unused)
