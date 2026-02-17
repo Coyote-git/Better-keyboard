@@ -10,15 +10,6 @@ A custom iOS keyboard with swipe-to-type, featuring a unique circular ring layou
 
 **Coyote** — A custom vertical-cluster layout designed for phone typing. The 9 most common letters are grouped in the center columns so common bigrams (HE, IN, ST) become vertical thumb movements rather than horizontal reaches.
 
-```
-Ring:            Grid (Coyote):
-    N                Q Y F S R I H W P J
-  S   H              Z G U T A N E M B X
-T       B                V D L C O K
-  E   O
-    A I
-```
-
 Users cycle between all five layouts with a keyboard button. Last-used layout persists across sessions.
 
 ## Features
