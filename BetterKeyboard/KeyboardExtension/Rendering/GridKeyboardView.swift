@@ -335,12 +335,17 @@ class GridKeyboardView: UIView, KeyboardLayoutView {
         x += smallW + sp
 
         spaceButton.frame = CGRect(x: x, y: bottomY - bottomH / 2, width: spaceW, height: bottomH)
+        let spaceFrame = spaceButton.frame
         x += spaceW + sp
 
         periodButton.frame = CGRect(x: x, y: bottomY - bottomH / 2, width: smallW, height: bottomH)
         x += smallW + sp
 
         returnButton.frame = CGRect(x: x, y: bottomY - bottomH / 2, width: smallW, height: bottomH)
+
+        // Layout name label centered below spacebar
+        layoutNameLabel.frame = CGRect(x: spaceFrame.minX, y: spaceFrame.maxY + 1,
+                                        width: spaceFrame.width, height: 12)
     }
 
     private func layoutPredictionBar(viewSize: CGSize) {
@@ -352,14 +357,9 @@ class GridKeyboardView: UIView, KeyboardLayoutView {
         layoutCycleButton.frame = CGRect(x: 8, y: predY, width: 30, height: 30)
         dismissButton.frame = CGRect(x: viewSize.width - 38, y: predY, width: 30, height: 30)
 
-        // Tiny layout name label just left of dismiss
-        let labelW: CGFloat = 50
-        layoutNameLabel.frame = CGRect(x: dismissButton.frame.minX - labelW - 2, y: predY,
-                                        width: labelW, height: 30)
-
-        // Predictions fill the space between cycle button and layout label
+        // Predictions fill the space between cycle button and dismiss button
         let predLeft = layoutCycleButton.frame.maxX + 4
-        let predRight = layoutNameLabel.frame.minX - 4
+        let predRight = dismissButton.frame.minX - 4
         let predWidth = predRight - predLeft
         let btnWidth = predWidth / 3.0
 

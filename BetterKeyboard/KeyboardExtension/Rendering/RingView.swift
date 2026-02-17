@@ -476,14 +476,14 @@ class RingView: UIView, KeyboardLayoutView {
         layoutCycleButton.frame = CGRect(x: 8, y: predY, width: 30, height: 30)
         dismissButton.frame = CGRect(x: bounds.width - 38, y: predY, width: 30, height: 30)
 
-        // Tiny layout name label just left of dismiss
-        let labelW: CGFloat = 50
-        layoutNameLabel.frame = CGRect(x: dismissButton.frame.minX - labelW - 2, y: predY,
-                                        width: labelW, height: 30)
+        // Layout name label centered at the bottom of the view
+        let labelW: CGFloat = 60
+        layoutNameLabel.frame = CGRect(x: (bounds.width - labelW) / 2, y: bounds.height - 14,
+                                        width: labelW, height: 12)
 
-        // Prediction buttons fill the space between cycle button and layout label
+        // Prediction buttons fill the space between cycle button and dismiss button
         let predLeft = layoutCycleButton.frame.maxX + 4
-        let predRight = layoutNameLabel.frame.minX - 4
+        let predRight = dismissButton.frame.minX - 4
         let predWidth = predRight - predLeft
         let btnWidth = predWidth / 3.0
         let predH: CGFloat = 26
