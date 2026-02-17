@@ -12,6 +12,12 @@ A custom iOS keyboard with swipe-to-type, featuring a unique circular ring layou
 
 Users cycle between all five layouts with a keyboard button. Last-used layout persists across sessions.
 
+<p align="center">
+  <img src="screenshots/BetterKeyboard_Ring_Layout.jpg" width="250" alt="Ring layout">
+  <img src="screenshots/BetterKeyboard_QWERTY_Layout.jpg" width="250" alt="QWERTY layout">
+  <img src="screenshots/BetterKeyboard_Coyote_Layout.jpg" width="250" alt="Coyote layout">
+</p>
+
 ## Features
 
 - **Swipe-to-type** with dictionary matching and word predictions
