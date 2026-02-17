@@ -17,3 +17,14 @@ optimizer/__pycache__/
 
 # Generated images (can be regenerated)
 optimizer/layout.png
+
+# Local docs / v1 snapshots (preserved in git history)
+SPEC-v2.md
+current-state-snapshot.txt
+pre-switch-state.txt
+pre-switch-all-edits.txt
+pre-switch-kvc.swift
+debug-context.md
+custom-swipe-keyboard.md
+keyboard-design-spec.md
+linkedin-post.txt
