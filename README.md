@@ -54,7 +54,11 @@ Build the `BetterKeyboardApp` scheme, then enable the keyboard in Settings → G
 
 ### Swipe Decoding
 
-During a swipe, the keyboard tracks which keys the finger passes near. On lift, the visited key sequence is matched against a ~10k word dictionary using subsequence matching with scoring based on gap penalty, span coverage, word frequency, and length. The ring layout's bigram-optimized placement means swipe paths for different words are more geometrically distinct than on QWERTY.
+Swipe decoding happens in two stages:
+
+**Tracking (SwipeTracker):** During a swipe, every touch sample is recorded with its timestamp. On finger lift, the full path is analyzed using velocity — the finger naturally slows down over intended letters (velocity minima) and speeds up between them. These dwell points become high-weight "anchor" keys, while letters the finger merely passes near get low weight. Endpoints (start/end of swipe) are always anchors. Loop gestures over a key are detected separately for double letters (e.g., "ll").
+
+**Matching (SwipeDecoder):** The weighted key sequence is matched against a ~50k word dictionary. Candidates are looked up by first/last letter, then scored with alignment: word letters are greedily matched to the key sequence in order, with two tiers of miss penalty (letters that exist in the sequence but couldn't match in order vs. letters completely absent from the path). Scoring also factors in anchor weight alignment, key sequence coverage, word length, frequency rank, and unsupported double-letter detection. The top N matches feed the prediction bar.
 
 ### Ring Geometry
 
